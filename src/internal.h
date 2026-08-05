@@ -23,6 +23,7 @@
 #include <huxerui/app.h>
 #include <huxerui/event.h>
 #include <huxerui/environment.h>
+#include <huxerui/indication.h>
 #include <huxerui/resource.h>
 #include <huxerui/state.h>
 #include <huxerui/view.h>
@@ -88,10 +89,118 @@ struct TextMeasurerService {
   TextMeasurer* measurer = nullptr;
 };
 
-void InstallBuiltinPresentation(RootContext& root);
+struct DebugMetricsSnapshot {
+  float fps = 0.0F;
+  float average_commit_time_ms = 0.0F;
+  float maximum_commit_time_ms = 0.0F;
+  std::optional<float> cpu_percent;
+  std::optional<std::uint64_t> memory_usage_bytes;
+  float average_damage_ratio = 0.0F;
+  Size viewport;
+  std::size_t painted_frame_count = 0;
 
-struct LayerControllerState {
-  Runtime* runtime = nullptr;
+  bool operator==(const DebugMetricsSnapshot&) const = default;
+};
+
+class DebugMetricsState {
+public:
+  explicit DebugMetricsState(PlatformAdapter& platform) : platform_(&platform) {}
+
+  void RecordCommit(double commit_time_seconds, const DamageRegion& damage, Size viewport) noexcept;
+  void ResetSampling() noexcept;
+  DebugMetricsSnapshot Sample(double timestamp) noexcept;
+
+private:
+  PlatformAdapter* platform_;
+  bool window_initialized_ = false;
+  double window_started_at_ = 0.0;
+  std::size_t painted_frame_count_ = 0;
+  double total_commit_time_seconds_ = 0.0;
+  double maximum_commit_time_seconds_ = 0.0;
+  double total_damage_ratio_ = 0.0;
+  Size viewport_;
+  std::optional<ProcessMetrics> previous_process_metrics_;
+  double previous_process_timestamp_ = 0.0;
+};
+
+void InstallBuiltinPresentation(RootContext& root);
+void InstallDebugOverlay(RootContext& root, std::shared_ptr<DebugMetricsState> metrics);
+
+enum class LayerPlacementKind : std::uint8_t {
+  Natural,
+  Center,
+  TopCenter,
+  BottomCenter,
+  Fill,
+  Anchored,
+};
+
+enum class LayerAnchorSide : std::uint8_t {
+  Below,
+  Above,
+  Right,
+  Left,
+};
+
+enum class LayerAnchorAlignment : std::uint8_t {
+  Start,
+  Center,
+  End,
+};
+
+struct LayerTransitionState {
+  // LayerEntry owns this while retained modifiers observe it. The completion callback holds the controller weakly and
+  // removes the entry only after the exit value settles.
+  bool target_visible = true;
+  // A transition attached to content that is already visible starts settled and is retained only for its later exit.
+  bool enter_on_mount = true;
+  bool reduced_motion = false;
+  float hidden_opacity = 0.0F;
+  AnimationSpec enter = TweenSpec{.duration = 0.2};
+  AnimationSpec exit = TweenSpec{.duration = 0.14};
+  std::function<void()> on_exit_complete;
+};
+
+struct LayerPlacement {
+  LayerPlacementKind kind = LayerPlacementKind::Natural;
+  Rect anchor;
+  LayerAnchorSide preferred_side = LayerAnchorSide::Below;
+  LayerAnchorAlignment alignment = LayerAnchorAlignment::Start;
+  float gap = 0.0F;
+  float viewport_margin = 0.0F;
+  Point offset;
+
+  // BottomCenter uses these fields for surfaces that fill compact viewports but retain a desktop width limit.
+  bool fill_cross_axis = false;
+  float maximum_cross_axis_extent = std::numeric_limits<float>::infinity();
+
+  bool operator==(const LayerPlacement&) const = default;
+};
+
+struct LayerPlacementValue {
+  // Anchor geometry mutates this shared value so only the retained layer entry needs layout invalidation.
+  using Value = std::shared_ptr<LayerPlacement>;
+};
+
+struct LayerEntryIdValue {
+  // LayerStack retains entries by id and skips unchanged content factories by revision.
+  using Value = LayerId;
+};
+
+struct LayerEntryRevisionValue {
+  using Value = std::uint64_t;
+};
+
+struct LayerEntry {
+  LayerId id = 0;
+  std::uint64_t sequence = 0;
+  std::uint64_t revision = 1;
+  LayerOptions options;
+  ViewFactory content;
+  std::shared_ptr<const Environment> environment;
+  // Placement is non-null for every attached entry and may be updated without rebuilding its content scope.
+  std::shared_ptr<LayerPlacement> placement;
+  std::shared_ptr<LayerTransitionState> transition;
 };
 
 template <std::floating_point T> class AnimatedValue {
@@ -218,10 +327,14 @@ public:
 enum class NodeKind {
   Text,
   Button,
+  Chip,
   TextField,
   Checkbox,
+  RadioButton,
   Switch,
   ProgressCircle,
+  ProgressBar,
+  Slider,
   Image,
   Canvas,
   Spacer,
@@ -238,9 +351,18 @@ struct ViewProperties {
   EdgeInsets padding;
   Frame frame;
   std::optional<Color> background;
+  std::optional<Color> disabled_background;
+  std::optional<Color> border;
+  std::optional<Color> disabled_border;
+  float border_width = 0.0F;
   std::optional<Shadow> shadow;
   TextStyle text_style;
-  float corner_radius = 0.0F;
+  std::optional<Color> disabled_foreground;
+  CornerRadii corner_radii;
+  bool clip_children = false;
+  std::optional<Size> indication_size;
+  float indication_corner_radius = 0.0F;
+  std::optional<IndicationSpec> indication_override;
   float spacing = 0.0F;
   float grow = 0.0F;
   MainAxisAlignment main_axis_alignment = MainAxisAlignment::Start;
@@ -263,26 +385,40 @@ struct ViewProperties {
   }
 
   [[nodiscard]] bool ContentPaintEquals(const ViewProperties& other) const {
-    return padding == other.padding && background == other.background && shadow == other.shadow &&
-           text_style == other.text_style && corner_radius == other.corner_radius;
+    return padding == other.padding && background == other.background &&
+           disabled_background == other.disabled_background && border == other.border &&
+           disabled_border == other.disabled_border && border_width == other.border_width &&
+           shadow == other.shadow && text_style == other.text_style &&
+           disabled_foreground == other.disabled_foreground && corner_radii == other.corner_radii;
   }
 
   [[nodiscard]] bool ForegroundPaintEquals(const ViewProperties& other) const {
-    return corner_radius == other.corner_radius && focus_ring == other.focus_ring &&
-           focus_ring_width == other.focus_ring_width;
+    return corner_radii == other.corner_radii && focus_ring == other.focus_ring &&
+           focus_ring_width == other.focus_ring_width && indication_size == other.indication_size &&
+           indication_corner_radius == other.indication_corner_radius &&
+           indication_override == other.indication_override;
   }
 };
 
 struct ImageProperties {
-  ImageAsset asset;
+  std::variant<ImageAsset, VectorAsset> asset;
   ImageFit fit = ImageFit::Contain;
   HorizontalAlignment horizontal_alignment = HorizontalAlignment::Center;
   VerticalAlignment vertical_alignment = VerticalAlignment::Center;
   ImageSampling sampling = ImageSampling::Linear;
+  std::optional<Color> tint;
+
+  [[nodiscard]] Size IntrinsicSize() const noexcept {
+    return std::visit([](const auto& value) { return value.IntrinsicSize(); }, asset);
+  }
+
+  [[nodiscard]] bool IsVector() const noexcept {
+    return std::holds_alternative<VectorAsset>(asset);
+  }
 
   // Only intrinsic logical size affects measurement; image contents, fit, alignment, and sampling are paint inputs.
   [[nodiscard]] bool LayoutEquals(const ImageProperties& other) const noexcept {
-    return asset.IntrinsicSize() == other.asset.IntrinsicSize();
+    return IntrinsicSize() == other.IntrinsicSize();
   }
 
   bool operator==(const ImageProperties&) const = default;
@@ -310,6 +446,7 @@ struct ViewSpec {
   std::function<void(const EventBindings&)> activation;
   std::vector<ModifierSpec> retained_modifiers;
   std::shared_ptr<const Environment> environment;
+  std::optional<bool> chip_selection;
   bool pointer_events_enabled = true;
   bool local_enabled = true;
   bool focusable = false;
@@ -440,6 +577,11 @@ struct MountedNode final : public huxerui::MountedNode {
   bool pointer_events_enabled = true;
   bool local_enabled = true;
   bool enabled = true;
+  // True only for the node that first disables an otherwise enabled subtree. Stateful controls use their disabled
+  // colors at this boundary; inherited disabled descendants remain visually enabled under the boundary group opacity.
+  bool disabled_visual_state = false;
+  // A visual extension can override the default centered indication frame with retained animated geometry.
+  std::optional<Rect> indication_frame;
   bool focusable = false;
   bool focused = false;
   bool focus_visible = false;
@@ -537,7 +679,7 @@ struct RenderNodeSnapshot {
   Transform2D world_children_transform;
   std::optional<Rect> world_clip;
   std::optional<Rect> world_child_clip;
-  std::optional<float> child_clip_corner_radius;
+  std::vector<RenderClip> child_clips;
   Rect own_bounds;
   Rect subtree_bounds;
   std::vector<std::uint64_t> children;
@@ -806,16 +948,21 @@ struct TextSelectionOverlay {
   TextSelectionOverlayState state;
 };
 
-struct LayerEntry {
+struct LayerFocusFrame {
   LayerId id = 0;
-  LayerOptions options;
-  ViewFactory content;
-  std::shared_ptr<const Environment> environment;
+  std::optional<std::uint64_t> restore_identity;
 };
 
 } // namespace huxerui::detail
 
 namespace huxerui {
+
+struct LayerController::State {
+  Runtime* runtime = nullptr;
+  std::vector<detail::LayerEntry> entries;
+  LayerId next_id = 1;
+  std::uint64_t next_sequence = 1;
+};
 
 struct Runtime::State {
   State(
@@ -836,15 +983,14 @@ struct Runtime::State {
   std::unordered_set<std::type_index> root_service_types_;
   std::shared_ptr<Environment> root_environment_;
   std::shared_ptr<detail::AppResources> app_resources_;
-  std::vector<detail::LayerEntry> layers_;
+  std::shared_ptr<detail::DebugMetricsState> debug_metrics_;
   std::unique_ptr<detail::MountedNode> mounted_root_;
   FrameCommit frame_commit_;
   detail::RenderSceneSnapshot committed_scene_snapshot_;
   Size committed_viewport_;
   bool has_committed_scene_snapshot_ = false;
-  bool composition_dirty_ = true;
-  bool composing_root_ = false;
-  bool layer_snapshot_taken_ = false;
+  bool application_dirty_ = true;
+  bool layers_dirty_ = true;
   bool extension_tree_dirty_ = true;
   bool scroll_motion_active_ = false;
   bool building_frame_ = false;
@@ -853,8 +999,6 @@ struct Runtime::State {
   std::optional<double> previous_frame_timestamp_;
   std::uint64_t next_node_identity_ = 1;
   std::uint64_t next_scope_identity_ = 2;
-  LayerId next_layer_id_ = 1;
-  bool has_application_root_ = false;
   std::optional<detail::NodeExtensionHandle> hovered_extension_;
   std::unordered_map<std::int64_t, detail::PointerSession> pointer_sessions_;
   std::optional<std::uint64_t> focused_node_identity_;
@@ -864,8 +1008,7 @@ struct Runtime::State {
   detail::TextSelectionGestureState text_selection_gesture_;
   detail::TextSelectionOverlay text_selection_overlay_;
   TextInputSessionId next_text_input_session_id_ = 1;
-  std::optional<LayerId> active_modal_focus_layer_;
-  std::unordered_map<LayerId, std::optional<std::uint64_t>> modal_focus_restore_;
+  std::vector<detail::LayerFocusFrame> layer_focus_stack_;
 };
 
 } // namespace huxerui

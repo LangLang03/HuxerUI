@@ -26,6 +26,10 @@ static_assert(!std::is_convertible_v<StringResource, ImageResource>);
 static_assert(!std::is_convertible_v<StringResource, RawResource>);
 static_assert(!std::is_convertible_v<RawResource, ImageResource>);
 static_assert(!std::is_convertible_v<RawResource, StringResource>);
+static_assert(std::is_constructible_v<StringVariant, std::string>);
+static_assert(std::is_constructible_v<StringVariant, std::string_view>);
+static_assert(std::is_constructible_v<StringVariant, const char*>);
+static_assert(std::is_constructible_v<StringVariant, StringResource>);
 
 void AppendU32(std::vector<std::byte>& bytes, std::uint32_t value) {
   for (unsigned shift = 0; shift < 32; shift += 8) {
@@ -82,6 +86,19 @@ TEST_CASE("ResourceIdsValidateAndCompareByValue") {
   REQUIRE_THROWS_AS(ResourceId("app", "images/logo:dark"), std::invalid_argument);
   REQUIRE_THROWS_AS(ResourceId("app", "images/logo\"dark"), std::invalid_argument);
   REQUIRE_THROWS_AS(ResourceId("app", "images/logo\ndark"), std::invalid_argument);
+}
+
+TEST_CASE("StringVariantComparesLiteralAndDeferredResourceValues") {
+  REQUIRE(StringVariant("Save") == StringVariant(std::string("Save")));
+  REQUIRE(StringVariant(StringResource("app", "strings/save")) == StringVariant(StringResource("app", "strings/save")));
+  REQUIRE(
+      StringVariant::Format(StringResource("app", "strings/files"), 3) ==
+      StringVariant::Format(StringResource("app", "strings/files"), 3)
+  );
+  REQUIRE_FALSE(
+      StringVariant::Format(StringResource("app", "strings/files"), 3) ==
+      StringVariant::Format(StringResource("app", "strings/files"), 4)
+  );
 }
 
 TEST_CASE("LocaleNormalizesCommonLanguageTags") {
@@ -142,10 +159,10 @@ TEST_CASE("ImageAssetRejectsTruncatedEncodedImages") {
 
 TEST_CASE("ResourceIndexRejectsUnsupportedVersions") {
   std::vector<std::byte> bytes = MakeIndex();
-  bytes[8] = std::byte{2};
+  bytes[8] = std::byte{3};
   REQUIRE_THROWS_WITH(
       huxerui::detail::ParseResourceIndex(RawAsset::FromBytes(std::move(bytes))),
-      "HuxerUI resource index version is unsupported: 2"
+      "HuxerUI resource index version is unsupported: 3"
   );
 }
 

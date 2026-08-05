@@ -107,7 +107,7 @@ RawAsset AppResources::ReadEntry(const ResourceIndexEntry& entry) {
   return asset;
 }
 
-ImageAsset AppResources::Resolve(ImageResource resource, const Locale& locale) {
+ResolvedImageAsset AppResources::ResolveImage(ImageResource resource, const Locale& locale) {
   const std::vector<std::string> fallbacks = LocaleFallbacks(locale);
   std::vector<const ResourceIndexEntry*> candidates;
   for (const std::string& fallback : fallbacks) {
@@ -133,7 +133,16 @@ ImageAsset AppResources::Resolve(ImageResource resource, const Locale& locale) {
   if (cached != image_cache_.end()) {
     return cached->second;
   }
-  ImageAsset asset = ResourceAccess::ImageFromRaw(ReadEntry(entry), entry.scale);
+  RawAsset raw = ReadEntry(entry);
+  if (ResourceAccess::IsVectorPayload(raw)) {
+    VectorAsset asset = ResourceAccess::VectorFromRaw(std::move(raw));
+    if (asset.IntrinsicSize() != entry.intrinsic_size) {
+      throw std::logic_error("HuxerUI vector metadata does not match the installed payload: " + entry.id.ToString());
+    }
+    image_cache_.emplace(cache_key, asset);
+    return asset;
+  }
+  ImageAsset asset = ResourceAccess::ImageFromRaw(std::move(raw), entry.scale);
   if (asset.PixelWidth() != entry.pixel_width || asset.PixelHeight() != entry.pixel_height) {
     throw std::logic_error("HuxerUI image metadata does not match the installed payload: " + entry.id.ToString());
   }
@@ -141,7 +150,23 @@ ImageAsset AppResources::Resolve(ImageResource resource, const Locale& locale) {
   return asset;
 }
 
-ResolvedStringResource AppResources::Resolve(StringResource resource, const Locale& locale) const {
+ImageAsset AppResources::Resolve(ImageResource resource, const Locale& locale) {
+  ResolvedImageAsset asset = ResolveImage(std::move(resource), locale);
+  if (const auto* image = std::get_if<ImageAsset>(&asset)) {
+    return *image;
+  }
+  throw std::invalid_argument("HuxerUI UseImage requires a raster image resource");
+}
+
+VectorAsset AppResources::ResolveVector(ImageResource resource, const Locale& locale) {
+  ResolvedImageAsset asset = ResolveImage(std::move(resource), locale);
+  if (const auto* image = std::get_if<VectorAsset>(&asset)) {
+    return *image;
+  }
+  throw std::invalid_argument("HuxerUI UseVectorImage requires a vector image resource");
+}
+
+ResolvedStringResource AppResources::Resolve(const StringResource& resource, const Locale& locale) const {
   const ResourceIndexEntry& entry = ResolveLocalized(resource, ResourceEntryKind::String, locale);
   return {entry.value, entry.argument_count};
 }
@@ -170,9 +195,31 @@ ImageAsset UseImage(ImageResource resource) {
   return CurrentResources()->Resolve(std::move(resource), UseEnvironment<Locale>());
 }
 
+VectorAsset UseVectorImage(ImageResource resource) {
+  return CurrentResources()->ResolveVector(std::move(resource), UseEnvironment<Locale>());
+}
+
 namespace detail {
 
-std::string UseStringArguments(StringResource resource, std::span<const std::string> arguments) {
+ResolvedImageAsset UseImageResource(ImageResource resource) {
+  return CurrentResources()->ResolveImage(std::move(resource), UseEnvironment<Locale>());
+}
+
+std::string ResolveStringVariant(const StringVariant& value) {
+  if (const auto* literal = std::get_if<std::string>(&value.value_)) {
+    return *literal;
+  }
+  return UseStringArguments(std::get<StringResource>(value.value_), value.arguments_);
+}
+
+std::string ResolveStringVariant(StringVariant&& value) {
+  if (auto* literal = std::get_if<std::string>(&value.value_)) {
+    return std::move(*literal);
+  }
+  return UseStringArguments(std::get<StringResource>(value.value_), value.arguments_);
+}
+
+std::string UseStringArguments(const StringResource& resource, std::span<const std::string> arguments) {
   const ResolvedStringResource resolved = CurrentResources()->Resolve(resource, UseEnvironment<Locale>());
   if (arguments.size() != resolved.argument_count) {
     throw std::invalid_argument(

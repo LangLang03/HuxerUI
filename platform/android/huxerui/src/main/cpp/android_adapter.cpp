@@ -3,6 +3,8 @@
 #include <android/input.h>
 #include <android/keycodes.h>
 #include <jni.h>
+#include <sys/resource.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
@@ -27,6 +29,10 @@
 namespace huxerui::detail {
 
 namespace {
+
+double TimevalSeconds(const timeval& value) noexcept {
+  return static_cast<double>(value.tv_sec) + static_cast<double>(value.tv_usec) / 1'000'000.0;
+}
 
 enum class AndroidEditorAction : jint {
   Unspecified,
@@ -94,6 +100,18 @@ std::string FromByteArray(JNIEnv* environment, jbyteArray bytes) {
 
 Key TranslateKey(jint key_code) {
   switch (key_code) {
+  case AKEYCODE_SHIFT_LEFT:
+  case AKEYCODE_SHIFT_RIGHT:
+    return Key::Shift;
+  case AKEYCODE_CTRL_LEFT:
+  case AKEYCODE_CTRL_RIGHT:
+    return Key::Control;
+  case AKEYCODE_ALT_LEFT:
+  case AKEYCODE_ALT_RIGHT:
+    return Key::Alt;
+  case AKEYCODE_META_LEFT:
+  case AKEYCODE_META_RIGHT:
+    return Key::Meta;
   case AKEYCODE_TAB:
     return Key::Tab;
   case AKEYCODE_ENTER:
@@ -187,6 +205,7 @@ public:
     write_clipboard_text_ = environment->GetMethodID(view_class, "writeClipboardText", "([B)Z");
     resource_locale_ = environment->GetMethodID(view_class, "resourceLocale", "()[B");
     resource_scale_ = environment->GetMethodID(view_class, "resourceScale", "()F");
+    process_pss_bytes_ = environment->GetMethodID(view_class, "processPssBytes", "()J");
     read_resource_ = environment->GetMethodID(view_class, "readResource", "([B)[B");
 
     if (schedule_frame_ == nullptr || invalidate_full_frame_ == nullptr || font_metrics_ == nullptr ||
@@ -194,7 +213,7 @@ public:
         start_text_input_ == nullptr || update_text_input_ == nullptr || restart_text_input_ == nullptr ||
         stop_text_input_ == nullptr || request_show_text_input_ == nullptr || read_clipboard_text_ == nullptr ||
         write_clipboard_text_ == nullptr || resource_locale_ == nullptr || resource_scale_ == nullptr ||
-        read_resource_ == nullptr) {
+        process_pss_bytes_ == nullptr || read_resource_ == nullptr) {
       environment->DeleteLocalRef(view_class);
       environment->DeleteGlobalRef(view_);
       view_ = nullptr;
@@ -530,6 +549,27 @@ public:
     return this;
   }
 
+  std::optional<ProcessMetrics> QueryProcessMetrics() noexcept override {
+    rusage usage{};
+    if (getrusage(RUSAGE_SELF, &usage) != 0) {
+      return std::nullopt;
+    }
+    JNIEnv* environment = Environment();
+    if (environment == nullptr || view_ == nullptr) {
+      return std::nullopt;
+    }
+    const jlong pss_bytes = environment->CallLongMethod(view_, process_pss_bytes_);
+    if (environment->ExceptionCheck() || pss_bytes < 0) {
+      return std::nullopt;
+    }
+    const long processor_count = sysconf(_SC_NPROCESSORS_ONLN);
+    return ProcessMetrics{
+        .cpu_time_seconds = TimevalSeconds(usage.ru_utime) + TimevalSeconds(usage.ru_stime),
+        .memory_usage_bytes = static_cast<std::uint64_t>(pss_bytes),
+        .processor_count = static_cast<std::uint32_t>(std::max(1L, processor_count)),
+    };
+  }
+
   ResourceConfiguration Configuration() const override {
     JNIEnv* environment = Environment();
     if (environment == nullptr || view_ == nullptr) {
@@ -737,6 +777,7 @@ private:
   jmethodID write_clipboard_text_ = nullptr;
   jmethodID resource_locale_ = nullptr;
   jmethodID resource_scale_ = nullptr;
+  jmethodID process_pss_bytes_ = nullptr;
   jmethodID read_resource_ = nullptr;
   PlatformFrameState frame_state_;
   const RenderFrame* committed_frame_ = nullptr;
@@ -793,6 +834,10 @@ public:
         modifiers,
         repeat,
     });
+  }
+
+  bool HandleBack() {
+    return runtime_.HandleBack();
   }
 
   bool ApplyTextInputCommand(
@@ -1034,6 +1079,19 @@ extern "C" JNIEXPORT void JNICALL Java_org_huxerui_HuxerUIView_nativeKey(
     }
   } catch (const std::exception& exception) {
     huxerui::detail::ThrowJavaException(environment, exception.what());
+  }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_org_huxerui_HuxerUIView_nativeHandleBack(JNIEnv* environment, jclass, jlong handle) {
+  try {
+    if (auto* session = huxerui::detail::Session(handle)) {
+      return session->HandleBack() ? JNI_TRUE : JNI_FALSE;
+    }
+    return JNI_FALSE;
+  } catch (const std::exception& exception) {
+    huxerui::detail::ThrowJavaException(environment, exception.what());
+    return JNI_FALSE;
   }
 }
 

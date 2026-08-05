@@ -13,6 +13,7 @@ import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.os.Debug;
 import android.os.SystemClock;
 import android.os.Build;
 import android.text.Layout;
@@ -280,6 +281,9 @@ public final class HuxerUIView extends View {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            return super.onKeyDown(keyCode, event);
+        }
         if (nativeHandle == 0L) {
             return super.onKeyDown(keyCode, event);
         }
@@ -289,11 +293,18 @@ public final class HuxerUIView extends View {
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            return super.onKeyUp(keyCode, event);
+        }
         if (nativeHandle == 0L) {
             return super.onKeyUp(keyCode, event);
         }
         sendKey(event, false);
         return true;
+    }
+
+    public boolean handleBack() {
+        return nativeHandle != 0L && nativeHandleBack(nativeHandle);
     }
 
     @Override
@@ -434,6 +445,10 @@ public final class HuxerUIView extends View {
 
     private float resourceScale() {
         return getResources().getDisplayMetrics().density;
+    }
+
+    private long processPssBytes() {
+        return Debug.getPss() * 1024L;
     }
 
     private byte[] readResource(byte[] encodedPath) {
@@ -1082,4 +1097,6 @@ public final class HuxerUIView extends View {
 
     private static native void nativeKey(long handle, boolean down, int keyCode, byte[] text, boolean shift,
             boolean control, boolean alt, boolean meta, boolean repeat);
+
+    private static native boolean nativeHandleBack(long handle);
 }

@@ -28,7 +28,7 @@ View Panel(View content) {
           .blur_radius = 18.0F,
           .spread = -2.0F,
       },
-      CornerRadius(theme.shapes.large)
+      CornerRadius(theme.shapes.extra_large)
   );
 }
 
@@ -36,6 +36,8 @@ View Panel(View content) {
 View ControlsDemo() {
   const ThemeSpec& theme = UseTheme();
   auto checkbox_checked = UseState(true);
+  auto chip_selected = UseState(false);
+  auto radio_choice = UseState(0);
   auto switch_checked = UseState(false);
   auto progress = UseState(0.35F);
   auto password = UseState(TextEditingValue::FromText(""));
@@ -44,9 +46,17 @@ View ControlsDemo() {
   return Panel(
       Column {
         Text("Controls", TextRole::Title),
-        Flow {
+        Row {
           Button("Button").OnClick([] {}),
           Button("Disabled").With(Enabled(false)).OnClick([] {}),
+        }.With(Spacing(theme.spacing.medium), CrossAlign(CrossAxisAlignment::Center)),
+        Row {
+          Chip("Action").OnClick([] {}),
+          Chip(chip_selected ? "Selected" : "Selectable", chip_selected)
+              .OnChanged([chip_selected](bool selected) { chip_selected = selected; }),
+          Chip("Disabled", false).OnChanged([](bool) {}).With(Enabled(false)),
+        }.With(Spacing(theme.spacing.small), CrossAlign(CrossAxisAlignment::Center)),
+        Row {
           Row {
             Checkbox(checkbox_checked).OnChanged(
                 [checkbox_checked](bool checked) { checkbox_checked = checked; }
@@ -59,6 +69,24 @@ View ControlsDemo() {
           }.With(Spacing(theme.spacing.small), CrossAlign(CrossAxisAlignment::Center)),
         }.With(Spacing(theme.spacing.medium), CrossAlign(CrossAxisAlignment::Center)),
         Row {
+          Row {
+            RadioButton(radio_choice == 0).OnChanged([radio_choice](bool selected) {
+              if (selected) {
+                radio_choice = 0;
+              }
+            }),
+            Text("Option A"),
+          }.With(Spacing(theme.spacing.small), CrossAlign(CrossAxisAlignment::Center)),
+          Row {
+            RadioButton(radio_choice == 1).OnChanged([radio_choice](bool selected) {
+              if (selected) {
+                radio_choice = 1;
+              }
+            }),
+            Text("Option B"),
+          }.With(Spacing(theme.spacing.small), CrossAlign(CrossAxisAlignment::Center)),
+        }.With(Spacing(theme.spacing.medium), CrossAlign(CrossAxisAlignment::Center)),
+        Row {
           ProgressCircle(),
           Text("Indeterminate"),
           ProgressCircle(progress),
@@ -66,6 +94,18 @@ View ControlsDemo() {
           Button("Advance").OnClick([progress] {
             progress.Update([](float& value) { value = value >= 0.95F ? 0.15F : value + 0.2F; });
           }),
+        }.With(Spacing(theme.spacing.small), CrossAlign(CrossAxisAlignment::Center)),
+        Row {
+          ProgressBar(),
+          Text("Indeterminate"),
+        }.With(Spacing(theme.spacing.small), CrossAlign(CrossAxisAlignment::Center)),
+        Row {
+          ProgressBar(progress),
+          Text::Format("{}%", static_cast<int>(progress * 100.0F)),
+        }.With(Spacing(theme.spacing.small), CrossAlign(CrossAxisAlignment::Center)),
+        Row {
+          Slider(progress).Step(0.05F).OnChanged([progress](float value) { progress = value; }),
+          Text::Format("{}%", static_cast<int>(progress * 100.0F)),
         }.With(Spacing(theme.spacing.small), CrossAlign(CrossAxisAlignment::Center)),
         TextField(password)
             .Secure()

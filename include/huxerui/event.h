@@ -68,6 +68,10 @@ enum class Key {
   X,
   Y,
   Z,
+  Shift,
+  Control,
+  Alt,
+  Meta,
 };
 
 enum class KeyEventType {
@@ -111,6 +115,10 @@ struct ViewEvents {
 
 struct ToggleEvents {
   struct Changed : Event<bool> {};
+};
+
+struct SliderEvents {
+  struct Changed : Event<float> {};
 };
 
 struct TextFieldEvents {

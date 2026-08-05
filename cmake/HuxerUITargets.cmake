@@ -7,11 +7,16 @@ function(huxerui_configure_platform)
     set(HUXERUI_PLATFORM_ID "generic")
     set(HUXERUI_PLATFORM_SOURCE_FILES)
     set(HUXERUI_PLATFORM_COMPILE_OPTIONS)
+    set(HUXERUI_PLATFORM_INTERFACE_COMPILE_OPTIONS)
     set(HUXERUI_PLATFORM_COMPILE_DEFINITIONS)
     set(HUXERUI_PLATFORM_LINK_LIBRARIES)
     set(HUXERUI_PLATFORM_INCLUDE_DIRECTORIES)
+    set(HUXERUI_PLATFORM_LINK_OPTIONS)
 
-    if (ANDROID)
+    if (EMSCRIPTEN)
+        set(HUXERUI_PLATFORM_ID "web")
+        include("${HUXERUI_TARGETS_CMAKE_DIR}/platform/Web.cmake")
+    elseif (ANDROID)
         set(HUXERUI_PLATFORM_ID "android")
         include("${HUXERUI_TARGETS_CMAKE_DIR}/platform/Android.cmake")
     elseif (APPLE)
@@ -24,7 +29,7 @@ function(huxerui_configure_platform)
         set(HUXERUI_PLATFORM_ID "linux")
         include("${HUXERUI_TARGETS_CMAKE_DIR}/platform/Linux.cmake")
     else ()
-        message(FATAL_ERROR "HuxerUI currently supports Android, macOS, Windows, and Linux only")
+        message(FATAL_ERROR "HuxerUI currently supports Android, macOS, Windows, Linux, and Web only")
     endif ()
 
     huxerui_platform_configure()
@@ -32,9 +37,11 @@ function(huxerui_configure_platform)
     set(HUXERUI_PLATFORM_ID "${HUXERUI_PLATFORM_ID}" PARENT_SCOPE)
     set(HUXERUI_PLATFORM_SOURCE_FILES ${HUXERUI_PLATFORM_SOURCE_FILES} PARENT_SCOPE)
     set(HUXERUI_PLATFORM_COMPILE_OPTIONS ${HUXERUI_PLATFORM_COMPILE_OPTIONS} PARENT_SCOPE)
+    set(HUXERUI_PLATFORM_INTERFACE_COMPILE_OPTIONS ${HUXERUI_PLATFORM_INTERFACE_COMPILE_OPTIONS} PARENT_SCOPE)
     set(HUXERUI_PLATFORM_COMPILE_DEFINITIONS ${HUXERUI_PLATFORM_COMPILE_DEFINITIONS} PARENT_SCOPE)
     set(HUXERUI_PLATFORM_LINK_LIBRARIES ${HUXERUI_PLATFORM_LINK_LIBRARIES} PARENT_SCOPE)
     set(HUXERUI_PLATFORM_INCLUDE_DIRECTORIES ${HUXERUI_PLATFORM_INCLUDE_DIRECTORIES} PARENT_SCOPE)
+    set(HUXERUI_PLATFORM_LINK_OPTIONS ${HUXERUI_PLATFORM_LINK_OPTIONS} PARENT_SCOPE)
 endfunction()
 
 function(huxerui_configure_compile_target target_name)
@@ -64,7 +71,9 @@ function(huxerui_configure_public_target target_name)
             $<BUILD_INTERFACE:${HUXERUI_PUBLIC_INCLUDE_DIR}>
             $<INSTALL_INTERFACE:include>
     )
+    target_compile_options(${target_name} INTERFACE ${HUXERUI_PLATFORM_INTERFACE_COMPILE_OPTIONS})
     target_link_libraries(${target_name} PRIVATE ${HUXERUI_PLATFORM_LINK_LIBRARIES})
+    target_link_options(${target_name} INTERFACE ${HUXERUI_PLATFORM_LINK_OPTIONS})
 
     if (WIN32)
         get_target_property(HUXERUI_TARGET_TYPE ${target_name} TYPE)
@@ -79,6 +88,9 @@ endfunction()
 function(huxerui_configure_targets)
     if (NOT HUXERUI_BUILD_SHARED AND NOT HUXERUI_BUILD_STATIC)
         message(FATAL_ERROR "At least one HuxerUI library target must be enabled")
+    endif ()
+    if (EMSCRIPTEN AND HUXERUI_BUILD_SHARED)
+        message(FATAL_ERROR "HuxerUI Web supports the static library target only")
     endif ()
 
     huxerui_configure_platform()
@@ -108,10 +120,15 @@ function(huxerui_configure_targets)
         )
         huxerui_configure_public_target(${HUXERUI_STATIC_LIB_NAME})
         add_library(HuxerUI::huxerui_static ALIAS ${HUXERUI_STATIC_LIB_NAME})
+        if (NOT TARGET HuxerUI::huxerui)
+            add_library(HuxerUI::huxerui ALIAS ${HUXERUI_STATIC_LIB_NAME})
+        endif ()
     endif ()
 
     set(HUXERUI_PLATFORM_ID "${HUXERUI_PLATFORM_ID}" PARENT_SCOPE)
+    set(HUXERUI_PLATFORM_INTERFACE_COMPILE_OPTIONS ${HUXERUI_PLATFORM_INTERFACE_COMPILE_OPTIONS} PARENT_SCOPE)
     set(HUXERUI_PLATFORM_LINK_LIBRARIES ${HUXERUI_PLATFORM_LINK_LIBRARIES} PARENT_SCOPE)
+    set(HUXERUI_PLATFORM_LINK_OPTIONS ${HUXERUI_PLATFORM_LINK_OPTIONS} PARENT_SCOPE)
 endfunction()
 
 function(huxerui_resolve_host_tool tool_name output_variable)
@@ -140,8 +157,20 @@ function(huxerui_resolve_host_tool tool_name output_variable)
     if (HUXERUI_HOST_SYSTEM STREQUAL "windows")
         set(HUXERUI_HOST_TOOL_SUFFIX ".exe")
     endif ()
+    if (HUXERUI_HOST_TOOL_ROOT)
+        set(HUXERUI_RESOLVED_HOST_TOOL_ROOT "${HUXERUI_HOST_TOOL_ROOT}")
+    else ()
+        # Source builds resolve tools beside this module; an installed package supplies HUXERUI_HOST_TOOL_ROOT.
+        get_filename_component(HUXERUI_RESOLVED_HOST_TOOL_ROOT
+                "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../tools/prebuilt"
+                ABSOLUTE
+        )
+    endif ()
+    set(HUXERUI_HOST_TOOL_DIRECTORY
+            "${HUXERUI_RESOLVED_HOST_TOOL_ROOT}/${HUXERUI_HOST_SYSTEM}/${HUXERUI_HOST_ARCHITECTURE}"
+    )
     set(HUXERUI_HOST_TOOL
-            "${HUXERUI_PROJECT_DIR}/tools/prebuilt/${HUXERUI_HOST_SYSTEM}/${HUXERUI_HOST_ARCHITECTURE}/huxerui-${tool_name}${HUXERUI_HOST_TOOL_SUFFIX}"
+            "${HUXERUI_HOST_TOOL_DIRECTORY}/${tool_name}${HUXERUI_HOST_TOOL_SUFFIX}"
     )
     if (NOT EXISTS "${HUXERUI_HOST_TOOL}")
         if (HUXERUI_HOST_SYSTEM STREQUAL "linux")
@@ -155,18 +184,30 @@ function(huxerui_resolve_host_tool tool_name output_variable)
     set(${output_variable} "${HUXERUI_HOST_TOOL}" PARENT_SCOPE)
 endfunction()
 
-# Builds a host tool from tools/<tool_name> source into the build tree when the
-# matching prebuilt executable is unavailable (Linux hosts commonly lack one).
-# The returned path is a custom-command output, so DEPENDS on it orders the build.
+# Builds a host tool from its tools/ source directory into the build tree when
+# the matching prebuilt executable is unavailable (Linux hosts commonly lack
+# one). The returned path is a custom-command output, so DEPENDS orders the
+# build. Tool output names (hcg, hapt) differ from their source directories
+# (codegen, resource_codegen).
 function(huxerui_build_host_tool tool_name output_variable)
-    set(HUXERUI_HOST_TOOL_SOURCE_DIR
-            "${HUXERUI_PROJECT_DIR}/tools/${tool_name}"
-    )
+    if (tool_name STREQUAL "hcg")
+        set(HUXERUI_HOST_TOOL_SOURCE_DIR
+                "${HUXERUI_PROJECT_DIR}/tools/codegen"
+        )
+    elseif (tool_name STREQUAL "hapt")
+        set(HUXERUI_HOST_TOOL_SOURCE_DIR
+                "${HUXERUI_PROJECT_DIR}/tools/resource_codegen"
+        )
+    else ()
+        message(FATAL_ERROR
+                "HuxerUI host tool source is unknown: ${tool_name}"
+        )
+    endif ()
     set(HUXERUI_HOST_TOOL_BUILD_DIR
             "${CMAKE_BINARY_DIR}/huxerui-host-tools/${tool_name}"
     )
     set(HUXERUI_HOST_TOOL
-            "${HUXERUI_HOST_TOOL_BUILD_DIR}/huxerui-${tool_name}"
+            "${HUXERUI_HOST_TOOL_BUILD_DIR}/${tool_name}"
     )
     if (WIN32)
         set(HUXERUI_HOST_TOOL
@@ -202,7 +243,7 @@ function(huxerui_enable_codegen target_name)
         )
     endif ()
 
-    huxerui_resolve_host_tool("codegen" HUXERUI_CODEGEN_COMMAND)
+    huxerui_resolve_host_tool("hcg" HUXERUI_CODEGEN_COMMAND)
 
     get_target_property(HUXERUI_CODEGEN_ALREADY_ENABLED
             ${target_name}
@@ -310,8 +351,11 @@ function(huxerui_enable_codegen target_name)
                 DIRECTORY
         )
 
+        set(HUXERUI_CODEGEN_OUTPUT_DIRECTORY
+                "${HUXERUI_CODEGEN_BINARY_DIR}/hcg/${target_name}/${HUXERUI_CODEGEN_SOURCE_HASH}"
+        )
         set(HUXERUI_CODEGEN_OUTPUT
-                "${HUXERUI_CODEGEN_BINARY_DIR}/huxerui-codegen/${target_name}/${HUXERUI_CODEGEN_SOURCE_HASH}/${HUXERUI_CODEGEN_SOURCE_NAME}"
+                "${HUXERUI_CODEGEN_OUTPUT_DIRECTORY}/${HUXERUI_CODEGEN_SOURCE_NAME}"
         )
         add_custom_command(
                 OUTPUT "${HUXERUI_CODEGEN_OUTPUT}"
@@ -405,7 +449,7 @@ function(huxerui_add_resources target_name)
         )
     endif ()
 
-    huxerui_resolve_host_tool("resource-codegen" HUXERUI_RESOURCE_CODEGEN_COMMAND)
+    huxerui_resolve_host_tool("hapt" HUXERUI_RESOURCE_CODEGEN_COMMAND)
     set(HUXERUI_RESOURCE_OUTPUT
             "${CMAKE_CURRENT_BINARY_DIR}/huxerui-resources/${target_name}"
     )
@@ -468,7 +512,15 @@ function(huxerui_add_resources target_name)
 
     set(HUXERUI_RESOURCE_STAGE_DIRECTORY)
     # Gradle stages Android packages after all ABI builds; CMake stages desktop targets with one output package.
-    if (APPLE)
+    if (EMSCRIPTEN)
+        target_link_options(${target_name} PRIVATE
+                "SHELL:--preload-file \"${HUXERUI_RESOURCE_OUTPUT}/package@/\""
+        )
+        set_property(TARGET ${target_name} APPEND PROPERTY LINK_DEPENDS
+                "${HUXERUI_RESOURCE_STAMP}"
+                "${HUXERUI_RESOURCE_INDEX}"
+        )
+    elseif (APPLE)
         set(HUXERUI_RESOURCE_STAGE_DIRECTORY
                 "$<TARGET_BUNDLE_DIR:${target_name}>/Contents/Resources/HuxerUI"
         )

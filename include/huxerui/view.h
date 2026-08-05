@@ -29,6 +29,7 @@
 #include <huxerui/text.h>
 #include <huxerui/text_input.h>
 #include <huxerui/validation.h>
+#include <huxerui/vector.h>
 #include <huxerui/virtual_layout.h>
 
 namespace huxerui {
@@ -149,6 +150,7 @@ protected:
   void SetImageFit(ImageFit fit);
   void SetImageAlignment(HorizontalAlignment horizontal, VerticalAlignment vertical);
   void SetImageSampling(ImageSampling sampling);
+  void SetImageTint(std::optional<Color> tint);
   void SetKey(std::int64_t value);
   void SetKey(std::uint64_t value);
   void SetKey(std::string value);
@@ -522,19 +524,39 @@ public:
 
 class Button final : public View {
 public:
+  explicit Button(StringResource resource);
   explicit Button(std::string label);
   explicit Button(std::string_view label);
   explicit Button(const char* label);
+};
+
+class Chip final : public detail::TypedView<Chip> {
+public:
+  explicit Chip(StringResource resource);
+  explicit Chip(std::string label);
+  explicit Chip(std::string_view label);
+  explicit Chip(const char* label);
+
+  Chip(StringResource resource, bool selected);
+  Chip(std::string label, bool selected);
+  Chip(std::string_view label, bool selected);
+  Chip(const char* label, bool selected);
+
+  template <class Function> Chip OnChanged(Function&& function) && {
+    return std::move(*this).On<ToggleEvents::Changed>(std::forward<Function>(function));
+  }
 };
 
 class Image final : public View {
 public:
   explicit Image(ImageResource resource);
   explicit Image(ImageAsset asset);
+  explicit Image(VectorAsset asset);
 
   Image Fit(ImageFit fit) &&;
   Image Align(HorizontalAlignment horizontal, VerticalAlignment vertical) &&;
   Image Sampling(ImageSampling sampling) &&;
+  Image Tint(Color tint) &&;
 };
 
 using CanvasPainter = std::function<void(PaintContext&, Size)>;
@@ -578,6 +600,7 @@ public:
   explicit TextField(TextEditingValue value);
   explicit TextField(const State<TextEditingValue>& value) : TextField(value.Get()) {}
 
+  TextField Placeholder(StringResource resource) &&;
   TextField Placeholder(std::string value) &&;
   TextField Placeholder(std::string_view value) &&;
   TextField Placeholder(const char* value) &&;
@@ -616,6 +639,16 @@ public:
   }
 };
 
+class RadioButton final : public detail::TypedView<RadioButton> {
+public:
+  explicit RadioButton(bool selected);
+  explicit RadioButton(const State<bool>& selected) : RadioButton(selected.Get()) {}
+
+  template <class Function> RadioButton OnChanged(Function&& function) && {
+    return std::move(*this).On<ToggleEvents::Changed>(std::forward<Function>(function));
+  }
+};
+
 class Switch final : public detail::TypedView<Switch> {
 public:
   explicit Switch(bool checked);
@@ -631,6 +664,34 @@ public:
   ProgressCircle();
   explicit ProgressCircle(float progress);
   explicit ProgressCircle(const State<float>& progress) : ProgressCircle(progress.Get()) {}
+};
+
+class ProgressBar final : public detail::TypedView<ProgressBar> {
+public:
+  ProgressBar();
+  explicit ProgressBar(float progress);
+  explicit ProgressBar(const State<float>& progress) : ProgressBar(progress.Get()) {}
+};
+
+class Slider final : public detail::TypedView<Slider> {
+public:
+  explicit Slider(float value);
+  explicit Slider(const State<float>& value) : Slider(value.Get()) {}
+
+  Slider Range(float minimum, float maximum) &&;
+  Slider Step(float step) &&;
+
+  template <class Function> Slider OnChanged(Function&& function) && {
+    return std::move(*this).On<SliderEvents::Changed>(std::forward<Function>(function));
+  }
+
+private:
+  void UpdateModifier();
+
+  float value_ = 0.0F;
+  float minimum_ = 0.0F;
+  float maximum_ = 1.0F;
+  std::optional<float> step_;
 };
 
 class Scope final : public View {

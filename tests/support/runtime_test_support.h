@@ -21,6 +21,8 @@ class Runtime;
 
 using huxerui::AnimateTo;
 using huxerui::Axis;
+using huxerui::BottomSheetContext;
+using huxerui::BottomSheetHandle;
 using huxerui::Button;
 using huxerui::ButtonStyle;
 using huxerui::Checkbox;
@@ -50,13 +52,20 @@ using huxerui::HorizontalAlignment;
 using huxerui::Key;
 using huxerui::KeyEvent;
 using huxerui::KeyEventType;
+using huxerui::LayerCancelPolicy;
 using huxerui::LayerController;
 using huxerui::LayerId;
-using huxerui::LayerKind;
+using huxerui::LayerLevel;
+using huxerui::LayerOptions;
+using huxerui::LayerPointerPolicy;
 using huxerui::Layout;
 using huxerui::LayoutContext;
 using huxerui::LayoutResult;
 using huxerui::MainAxisAlignment;
+using huxerui::MenuEntry;
+using huxerui::MenuHandle;
+using huxerui::MenuItem;
+using huxerui::MenuSection;
 using huxerui::MountedNode;
 using huxerui::NodeExtension;
 using huxerui::Offset;
@@ -69,10 +78,16 @@ using huxerui::PointerEvent;
 using huxerui::PointerEventType;
 using huxerui::PopClipCommand;
 using huxerui::PopTransformCommand;
+using huxerui::PopupContext;
+using huxerui::PopupHandle;
+using huxerui::ProgressBar;
+using huxerui::ProgressBarStyle;
 using huxerui::ProgressCircle;
 using huxerui::ProgressCircleStyle;
 using huxerui::PushClipCommand;
 using huxerui::PushTransformCommand;
+using huxerui::RadioButton;
+using huxerui::RadioButtonStyle;
 using huxerui::Rect;
 using huxerui::RenderFrame;
 using huxerui::RenderNode;
@@ -85,6 +100,8 @@ using huxerui::ScrollEvent;
 using huxerui::ScrollView;
 using huxerui::SelectionArea;
 using huxerui::Size;
+using huxerui::Slider;
+using huxerui::SliderStyle;
 using huxerui::Spacer;
 using huxerui::Stack;
 using huxerui::State;
@@ -117,9 +134,12 @@ using huxerui::ToastHandle;
 using huxerui::ToggleEvents;
 using huxerui::Transform2D;
 using huxerui::TweenSpec;
+using huxerui::UseBottomSheet;
 using huxerui::UseDialog;
 using huxerui::UseEnvironment;
 using huxerui::UseEvents;
+using huxerui::UseMenu;
+using huxerui::UsePopup;
 using huxerui::UseScrollController;
 using huxerui::UseService;
 using huxerui::UseState;
@@ -168,13 +188,8 @@ private:
       commands_.emplace_back(PushTransformCommand{transform});
     }
     Append(node.content);
-    if (node.child_clip.has_value()) {
-      commands_.emplace_back(
-          PushClipCommand{
-              node.child_clip->rect,
-              node.child_clip->corner_radius,
-          }
-      );
+    for (const RenderClip& clip : node.child_clips) {
+      std::visit([this](const auto& command) { commands_.emplace_back(command); }, clip);
     }
     const bool children_transformed = !node.children_transform.IsIdentity();
     if (children_transformed) {
@@ -188,7 +203,7 @@ private:
     if (children_transformed) {
       commands_.emplace_back(PopTransformCommand{});
     }
-    if (node.child_clip.has_value()) {
+    for (std::size_t index = 0; index < node.child_clips.size(); ++index) {
       commands_.emplace_back(PopClipCommand{});
     }
     Append(node.foreground);
@@ -211,7 +226,11 @@ private:
 
 class Runtime final {
 public:
-  Runtime(huxerui::RootFactory root_factory, huxerui::PlatformAdapter& platform, huxerui::AppOptions options = {})
+  Runtime(
+      huxerui::RootFactory root_factory,
+      huxerui::PlatformAdapter& platform,
+      huxerui::AppOptions options = {.show_debug_overlay = false}
+  )
       : runtime_(
             {
                 .root_factory = root_factory,
@@ -259,6 +278,10 @@ public:
 
   void HandleKeyEvent(const KeyEvent& event) {
     runtime_.HandleKeyEvent(event);
+  }
+
+  bool HandleBack() {
+    return runtime_.HandleBack();
   }
 
   bool PerformTextInputAction(TextInputSessionId session_id, huxerui::TextInputAction action) {
@@ -562,13 +585,25 @@ public:
     return platform_resources;
   }
 
+  std::optional<huxerui::ProcessMetrics> QueryProcessMetrics() noexcept override {
+    return process_metrics;
+  }
+
   int requested_frames = 0;
   double current_time = 0.0;
   std::vector<double> requested_deadlines;
+  std::optional<huxerui::ProcessMetrics> process_metrics;
   huxerui::PlatformTextInput* platform_text_input = nullptr;
   huxerui::PlatformClipboard* platform_clipboard = nullptr;
   huxerui::PlatformResources* platform_resources = nullptr;
 };
+
+inline void SettlePresentation(TestPlatform& platform, Runtime& runtime, double duration = 0.5) {
+  platform.AdvanceTime(duration);
+  runtime.BuildFrame();
+  // Exit completion invalidates the layer stack; the following commit removes the retained entry.
+  runtime.BuildFrame();
+}
 
 inline std::string FirstText(const FlattenedScene& scene) {
   for (const auto& command : scene.Commands()) {
@@ -619,7 +654,11 @@ inline const DrawRectCommand* FindRectWithColor(const FlattenedScene& scene, Col
   return nullptr;
 }
 
-inline std::optional<Rect> FindPresentedRectWithColor(const FlattenedScene& scene, Color expected) {
+inline std::optional<Rect> FindPresentedRectWithColor(
+    const FlattenedScene& scene,
+    Color expected,
+    std::optional<Size> expected_size = std::nullopt
+) {
   std::vector<Transform2D> transform_stack{Transform2D{}};
   for (const auto& command : scene.Commands()) {
     if (const auto* transform = std::get_if<PushTransformCommand>(&command)) {
@@ -631,8 +670,14 @@ inline std::optional<Rect> FindPresentedRectWithColor(const FlattenedScene& scen
       continue;
     }
     const auto* rect = std::get_if<DrawRectCommand>(&command);
-    if (rect && rect->color == expected) {
+    if (rect && rect->color == expected &&
+        (!expected_size.has_value() || Size{rect->rect.width, rect->rect.height} == *expected_size)) {
       return detail::TransformBounds(transform_stack.back(), rect->rect);
+    }
+    const auto* path = std::get_if<FillPathCommand>(&command);
+    if (path && path->color == expected &&
+        (!expected_size.has_value() || Size{path->path.Bounds().width, path->path.Bounds().height} == *expected_size)) {
+      return detail::TransformBounds(transform_stack.back(), path->path.Bounds());
     }
   }
   return std::nullopt;
@@ -667,6 +712,26 @@ inline std::optional<float> RectAlpha(const FlattenedScene& scene, Rect expected
   }
   return std::nullopt;
 }
+
+inline std::optional<Rect> FindPresentedTextRect(const FlattenedScene& scene, std::string_view expected) {
+  std::vector<Transform2D> transform_stack{Transform2D{}};
+  for (const PaintCommand& command : scene.Commands()) {
+    if (const auto* transform = std::get_if<PushTransformCommand>(&command)) {
+      transform_stack.push_back(detail::ComposeTransform(transform_stack.back(), transform->transform));
+      continue;
+    }
+    if (std::holds_alternative<PopTransformCommand>(command)) {
+      transform_stack.pop_back();
+      continue;
+    }
+    const auto* text = std::get_if<DrawTextCommand>(&command);
+    if (text && text->text == expected) {
+      return detail::TransformBounds(transform_stack.back(), text->rect);
+    }
+  }
+  return std::nullopt;
+}
+
 inline void InvokeClick(const huxerui::detail::MountedNode& node) {
   REQUIRE(huxerui::detail::EmitEvent<ViewEvents::Click>(node.event_bindings));
 }

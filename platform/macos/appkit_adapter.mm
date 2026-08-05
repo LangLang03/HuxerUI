@@ -2,6 +2,8 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <QuartzCore/CADisplayLink.h>
 #import <dispatch/dispatch.h>
+#import <mach/mach.h>
+#import <sys/resource.h>
 
 #include <algorithm>
 #include <chrono>
@@ -27,12 +29,21 @@ namespace huxerui::detail {
 class MacPlatformAdapter;
 }
 
+namespace {
+
+double TimevalSeconds(const timeval& value) noexcept {
+  return static_cast<double>(value.tv_sec) + static_cast<double>(value.tv_usec) / 1'000'000.0;
+}
+
+} // namespace
+
 @interface HuxerUIView : NSView {
 @public
   huxerui::Runtime* huxeruiRuntime;
   huxerui::detail::MacPlatformAdapter* huxeruiAdapter;
   NSPoint huxeruiPointerPosition;
   NSTrackingArea* huxeruiTrackingArea;
+  NSEventModifierFlags huxeruiModifierFlags;
 }
 - (void)sendPointerEvent:(NSEvent*)event type:(huxerui::PointerEventType)type;
 - (void)sendKeyEvent:(NSEvent*)event type:(huxerui::KeyEventType)type;
@@ -298,6 +309,30 @@ public:
 
   PlatformResources* Resources() noexcept override {
     return this;
+  }
+
+  std::optional<ProcessMetrics> QueryProcessMetrics() noexcept override {
+    rusage usage{};
+    if (getrusage(RUSAGE_SELF, &usage) != 0) {
+      return std::nullopt;
+    }
+    mach_task_basic_info_data_t task_metrics{};
+    mach_msg_type_number_t task_metrics_count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(
+            mach_task_self(),
+            MACH_TASK_BASIC_INFO,
+            reinterpret_cast<task_info_t>(&task_metrics),
+            &task_metrics_count
+        ) != KERN_SUCCESS) {
+      return std::nullopt;
+    }
+    return ProcessMetrics{
+        .cpu_time_seconds = TimevalSeconds(usage.ru_utime) + TimevalSeconds(usage.ru_stime),
+        .memory_usage_bytes = static_cast<std::uint64_t>(task_metrics.resident_size),
+        .processor_count = static_cast<std::uint32_t>(
+            std::max<NSInteger>(1, [[NSProcessInfo processInfo] processorCount])
+        ),
+    };
   }
 
   ResourceConfiguration Configuration() const override {
@@ -612,6 +647,37 @@ int RunPlatformApp(AppDefinition definition) {
   [self sendKeyEvent:event type:huxerui::KeyEventType::Up];
 }
 
+- (void)flagsChanged:(NSEvent*)event {
+  const huxerui::KeyEvent key_event = huxerui::detail::MakeMacKeyEvent(event, huxerui::KeyEventType::Down);
+  NSEventModifierFlags modifier_flag = 0;
+  switch (key_event.key) {
+  case huxerui::Key::Shift:
+    modifier_flag = NSEventModifierFlagShift;
+    break;
+  case huxerui::Key::Control:
+    modifier_flag = NSEventModifierFlagControl;
+    break;
+  case huxerui::Key::Alt:
+    modifier_flag = NSEventModifierFlagOption;
+    break;
+  case huxerui::Key::Meta:
+    modifier_flag = NSEventModifierFlagCommand;
+    break;
+  default:
+    break;
+  }
+
+  const NSEventModifierFlags next_flags = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+  // HuxerUI collapses left and right modifiers, so only emit the first press and final release.
+  const bool was_down = modifier_flag != 0 && (huxeruiModifierFlags & modifier_flag) != 0;
+  const bool is_down = modifier_flag != 0 && (next_flags & modifier_flag) != 0;
+  huxeruiModifierFlags = next_flags;
+  if (was_down == is_down) {
+    return;
+  }
+  [self sendKeyEvent:event type:is_down ? huxerui::KeyEventType::Down : huxerui::KeyEventType::Up];
+}
+
 - (void)cancelOperation:(id)sender {
   static_cast<void>(sender);
   [self cancelPointer];
@@ -620,6 +686,7 @@ int RunPlatformApp(AppDefinition definition) {
 - (void)viewWillMoveToWindow:(NSWindow*)newWindow {
   if (newWindow == nil) {
     [self cancelPointer];
+    huxeruiModifierFlags = 0;
   }
   [super viewWillMoveToWindow:newWindow];
 }

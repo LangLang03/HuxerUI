@@ -7,6 +7,11 @@
 
 namespace huxerui {
 
+enum class Axis {
+  Horizontal,
+  Vertical,
+};
+
 struct Point {
   float x = 0.0F;
   float y = 0.0F;
@@ -54,6 +59,28 @@ struct Rect {
         std::max(0.0F, bottom - top),
     };
   }
+};
+
+struct CornerRadii {
+  float top_left = 0.0F;
+  float top_right = 0.0F;
+  float bottom_right = 0.0F;
+  float bottom_left = 0.0F;
+
+  CornerRadii() = default;
+  CornerRadii(float value) : top_left(value), top_right(value), bottom_right(value), bottom_left(value) {}
+  CornerRadii(float top_left, float top_right, float bottom_right, float bottom_left)
+      : top_left(top_left), top_right(top_right), bottom_right(bottom_right), bottom_left(bottom_left) {}
+
+  static CornerRadii Top(float value) noexcept {
+    return {value, value, 0.0F, 0.0F};
+  }
+
+  [[nodiscard]] bool IsUniform() const noexcept {
+    return top_left == top_right && top_left == bottom_right && top_left == bottom_left;
+  }
+
+  bool operator==(const CornerRadii&) const = default;
 };
 
 struct Transform2D {

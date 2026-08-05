@@ -2,10 +2,10 @@
 
 Status: initial implementation
 
-This document defines application resource identity, packaging, resolution, immutable image and raw assets, the Image component, image paint commands, locale propagation, and formatted localized strings.
+This document defines application resource identity, packaging, resolution, immutable raster and vector image assets, raw assets, the Image component, image painting, locale propagation, and formatted localized strings.
 
-The current implementation includes typed keys, the resource generator and binary index, target staging, PlatformResources on Android, macOS, and Windows, Runtime-owned resolution, raw assets, positional localized strings, ImageAsset, Image, image PaintCommands, native image caches, and generated-assets wiring for the repository Android demo.
-SDK manifest integration, reusable consumer Gradle integration, module bundle merging, framework string migration, inherited Locale text shaping, localized image discovery, and future platform adapters remain planned.
+The current implementation includes typed keys, the resource generator and binary index, target staging, PlatformResources on Android, macOS, Windows, and Web, Runtime-owned resolution, raw assets, positional localized strings, deferred StringVariant inputs, ImageAsset, VectorAsset, SVG compilation, Image, image painting, native raster caches, and generated-assets wiring for the repository Android demo.
+Reusable installed-Android integration, module bundle merging, built-in framework string bundles, inherited Locale text shaping, localized image discovery, and future platform adapters remain planned.
 
 ## Goals
 
@@ -20,7 +20,7 @@ SDK manifest integration, reusable consumer Gradle integration, module bundle me
 
 ## Non-goals
 
-The initial implementation does not provide network loading, URI loading, animated images, SVG decoding, image filters, editable pixel buffers, date or currency formatting, plural rules, resource hot reload, or a runtime module registry.
+The initial implementation does not provide network loading, URI loading, animated images, runtime SVG DOM decoding, image filters, editable pixel buffers, date or currency formatting, plural rules, resource hot reload, or a runtime module registry.
 
 Network and native picker modules may produce encoded bytes and construct an ImageAsset.
 Android `content://` values, Apple security-scoped URLs, and other native handles remain platform-service concerns rather than cross-platform file paths.
@@ -35,9 +35,9 @@ Resource ownership follows the existing Runtime, Environment, PlatformAdapter, a
 | PlatformResources | Read immutable bytes from the installed platform package and report the current resource configuration |
 | AppResources | Resolve typed keys, locale fallback, density variants, and shared immutable assets |
 | Runtime | Own AppResources for one root, seed the resource Environment, and coordinate resource-configuration invalidation |
-| Image | Measure from intrinsic logical size and translate fit and alignment into image paint commands |
-| PaintContext | Record immutable image assets, source geometry, destination geometry, sampling, and opacity |
-| Platform renderer | Decode encoded image bytes, cache native images, and replay DrawImageCommand |
+| Image | Measure from intrinsic logical size and translate fit and alignment into raster or vector painting |
+| PaintContext | Record raster image commands or expand immutable vector paths with source geometry, tint, and opacity |
+| Platform renderer | Decode and cache raster images, then replay the common platform-neutral path and image commands |
 
 Runtime and application state never retain `Bitmap`, `CGImage`, `ID2D1Bitmap`, platform paths, or platform resource identifiers.
 Platform renderers never resolve localized strings or decide ImageFit behavior.
@@ -104,6 +104,7 @@ The public composition operations remain narrow:
 
 ```cpp
 ImageAsset UseImage(ImageResource resource);
+VectorAsset UseVectorImage(ImageResource resource);
 RawAsset UseRawResource(RawResource resource);
 
 template <class... Arguments>
@@ -112,6 +113,7 @@ std::string UseString(StringResource resource, Arguments&&... arguments);
 
 These operations read the current root service and Environment but do not allocate ordered UseState slots.
 There is no public mutable ResourceManager, global resource singleton, or second context system.
+Deferred presentation APIs use `StringVariant`, which stores direct text or a `StringResource` and its positional arguments until composition occurs in the captured Environment.
 Text also accepts a zero-argument StringResource directly and mirrors its existing Format surface for localized arguments:
 
 ```cpp
@@ -123,18 +125,11 @@ Text::Format(TextRole::Label, app_resources::strings::file_count, user_name, fil
 
 The constructors keep the common static-string case compact.
 The named Format operation avoids a variadic constructor that could conflict with TextRole or future Text configuration.
-UseString remains the general operation for Button labels, placeholders, presentation messages, and application logic.
+Button and TextField placeholder provide direct StringResource overloads. UseString remains the explicit operation for application logic and Validation that need the resolved UTF-8 value immediately. StringVariant retains direct text or a StringResource with positional arguments for Dialog, Toast, and Menu APIs that may be composed after the call returns.
 
 ## Build and package model
 
-Managed projects continue to declare asset roots in `huxerui.toml`:
-
-```toml
-[app]
-assets = ["assets"]
-```
-
-Direct CMake consumers use a target-scoped operation:
+Application resources are target-scoped CMake inputs:
 
 ```cmake
 huxerui_add_resources(
@@ -144,10 +139,21 @@ huxerui_add_resources(
 )
 ```
 
-The managed SDK generates equivalent target configuration from the project manifest.
+`huxerui_add_app` may expose the same operation compactly:
+
+```cmake
+huxerui_add_app(application_target
+    SOURCES src/main.cpp
+    RESOURCES assets
+    RESOURCE_NAMESPACE app
+)
+```
+
+Both forms configure the same resource target and generated package.
+Native platform shells consume its generated staging projection and do not redeclare asset roots.
 
 Resource processing is distinct from C++ scope transformation.
-A dedicated `resource_codegen` host tool belongs in the existing `tools/prebuilt/<host>/<architecture>` layout rather than expanding the scope code generator into an unrelated packager.
+The HuxerUI Asset Packaging Tool (`hapt`) belongs in the existing `tools/prebuilt/<host>/<architecture>` layout rather than expanding the HuxerUI Code Generator (`hcg`) into an unrelated packager.
 
 The resource tool:
 
@@ -216,18 +222,18 @@ The resource index is already filtered for the build target, so shared Runtime c
 ResourceConfiguration supplies only values that vary at runtime and affect resolution.
 
 Packaged resources must be synchronously readable before Runtime is created.
-A platform whose package transport is asynchronous completes that transport during host startup and exposes the resulting immutable payload through PlatformResources.
-In particular, a Web host loads the resource index and payload before invoking the registered HUXERUI_APP definition.
+A platform whose package transport is asynchronous completes that transport during platform startup and exposes the resulting immutable payload through PlatformResources.
+In particular, the Web entry integration loads the resource index and payload before invoking the registered HUXERUI_APP definition.
 Remote URLs remain application or module inputs and do not become package paths.
 
-When system locale or display scale changes, the native host calls `Runtime::UpdateResourceConfiguration()` with the new value.
+When system locale or display scale changes, the platform integration calls `Runtime::UpdateResourceConfiguration()` with the new value.
 Runtime ignores an equal value; otherwise it updates AppResources and the inherited Locale, invalidates root composition, and requests a frame.
 `BuildFrame()` does not poll native state.
 The initial implementation invalidates root composition, then normal reconciliation limits changed ImageAsset geometry and paint work to the affected nodes.
 Dependency-recorded resource reads and inherited Locale text shaping may later narrow the initial root invalidation without changing the public API.
 
 An explicit Locale Environment value overrides the system locale for its subtree.
-Display scale remains a host property.
+Display scale remains a platform property.
 
 ## Resource variants
 
@@ -255,7 +261,7 @@ logo@2x.png    836 x 836
 logo@3x.png   1254 x 1254
 ```
 
-It displays the selected ImageAsset scale and encoded pixel dimensions so density selection is observable on each host.
+It displays the selected ImageAsset scale and encoded pixel dimensions so density selection is observable on each platform.
 
 Scale variants for one ImageResource must have the same intrinsic logical size:
 
@@ -326,6 +332,34 @@ The encoded bytes are therefore already present when a renderer first decodes th
 The initial guaranteed formats are PNG and JPEG.
 Additional formats extend ImageFormat and every renderer together.
 
+## VectorAsset and SVG resources
+
+VectorAsset is an immutable platform-neutral vector image value.
+It retains a view box, intrinsic logical size, and a restricted sequence of filled paths, stroked paths, clips, and transforms.
+It does not retain native paths, callbacks, Environment values, Theme values, or mutable component state.
+
+Applications may construct vector images directly:
+
+```cpp
+const VectorAsset mark = VectorAsset::Create({24.0F, 24.0F}, [](VectorBuilder& vector) {
+  Path path;
+  path.MoveTo({2.0F, 12.0F}).LineTo({10.0F, 20.0F}).LineTo({22.0F, 4.0F});
+  vector.StrokePath(std::move(path), Color::Black(), 2.0F, StrokeCap::Round, StrokeJoin::Round);
+});
+```
+
+Packaged SVG files remain ImageResource values and live under `assets/images` with raster images.
+The resource generator validates them and compiles supported geometry into the versioned `HUXV` payload.
+Runtime detects that payload signature when it first resolves the ImageResource; ResourceId does not encode the storage format and there is no public ImageKind.
+
+The initial SVG compiler supports `svg`, `g`, `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`, and `polygon`; view boxes and intrinsic sizes; solid fill and stroke colors; fill rules; stroke widths, caps, joins, and miter limits; element transforms; and path arcs converted to cubic curves.
+It rejects scripts, external entities, text rendering, embedded bitmaps, CSS stylesheets, gradients, filters, masks, clip paths, animation, and unsupported units with a source-file diagnostic.
+Unimplemented presentation semantics such as `preserveAspectRatio`, `display`, `visibility`, and group `opacity` are rejected rather than approximated.
+
+`Image(ImageResource)` automatically accepts either a raster or vector payload.
+`UseImage()` and `UseVectorImage()` are explicit type-checked resolvers for code that needs the concrete asset value.
+Calling the wrong resolver throws `std::invalid_argument`.
+
 ## RawResource and RawAsset
 
 Arbitrary bytes use a distinct key and value rather than abusing ImageAsset:
@@ -394,15 +428,22 @@ class Image final : public View {
 public:
   explicit Image(ImageResource resource);
   explicit Image(ImageAsset asset);
+  explicit Image(VectorAsset asset);
 
   Image Fit(ImageFit fit) &&;
   Image Align(HorizontalAlignment horizontal, VerticalAlignment vertical) &&;
   Image Sampling(ImageSampling sampling) &&;
+  Image Tint(Color tint) &&;
 };
 ```
 
-The ImageResource constructor lets Runtime resolve locale and scale variants from the node's Environment and PlatformResources configuration.
+The ImageResource constructor lets Runtime resolve raster scale variants or a compiled vector payload from the node's Environment and PlatformResources configuration.
 The ImageAsset constructor supports files, network results, native picker modules, generated images, and explicitly shared application data.
+Packaged SVG resources resolve to VectorAsset values through ImageResource, while VectorAsset::Create constructs programmatic vector geometry.
+
+Sampling configures raster filtering and is invalid for a VectorAsset.
+Tint replaces the RGB channels of vector fills and strokes while preserving their per-layer alpha, then multiplies the supplied tint alpha.
+Tint is invalid for an ImageAsset; a future raster color-filter API remains a distinct operation.
 
 Image does not add component-specific opacity.
 The existing Opacity presentation modifier applies to the node as a whole.
@@ -414,7 +455,7 @@ Image validates them when configured.
 
 ImageFit does not determine the node's measured size.
 
-- Without tight dimensions, Image uses ImageAsset::IntrinsicSize() as its desired size.
+- Without tight dimensions, Image uses the resolved asset's IntrinsicSize() as its desired size.
 - If the intrinsic size exceeds finite maximum constraints, Image scales the desired size down uniformly to fit.
 - Minimum constraints may enlarge the Image layout box without changing the image's intrinsic aspect ratio.
 - Frame, Grow, and parent layout policy may provide a larger or tighter final box.
@@ -433,7 +474,7 @@ This keeps layout deterministic while letting the paint policy decide how an ima
 Alignment positions unused destination space or chooses the cropped source region.
 Image computes source and destination geometry before recording a command, so native renderers do not implement ImageFit independently.
 
-## Image paint commands
+## Image painting
 
 PaintCommand adds one immutable image command:
 
@@ -469,6 +510,21 @@ void DrawImageRect(
     ImageSampling sampling = ImageSampling::Linear,
     float opacity = 1.0F
 );
+
+void DrawImage(
+    VectorAsset image,
+    Rect destination,
+    std::optional<Color> tint = {},
+    float opacity = 1.0F
+);
+
+void DrawImageRect(
+    VectorAsset image,
+    Rect source,
+    Rect destination,
+    std::optional<Color> tint = {},
+    float opacity = 1.0F
+);
 ```
 
 The explicit method names avoid a single overload whose optional source geometry is difficult to read at call sites.
@@ -476,6 +532,10 @@ The explicit method names avoid a single overload whose optional source geometry
 DrawImageCommand destination geometry supplies culling, damage, and conservative paint bounds.
 The renderer does not measure the image or recalculate fit.
 Existing transforms, clips, retained opacity, and PaintSequence reuse apply without image-specific traversal.
+
+Vector drawing is expanded while PaintContext records the sequence.
+The expansion adds a destination clip and a view-box transform, then reuses the existing immutable FillPathCommand, StrokePathCommand, clip, and transform commands.
+Every renderer therefore uses its established path implementation instead of maintaining a second vector interpreter.
 
 Canvas resolves an application resource during composition and captures the cheap ImageAsset value:
 
@@ -502,11 +562,11 @@ Native image caches use a 64 MiB decoded-byte LRU budget and remain renderer-own
 An individual decoded image larger than the budget is retained as the cache's sole entry so repeated frames do not
 decode it again; the next distinct image evicts it normally.
 Device loss clears Windows device-dependent bitmaps but does not invalidate ImageAsset, layout, or PaintSequence data.
-Destroying an Android host view releases its Bitmap cache, and macOS cache entries use balanced Core Foundation ownership.
+Destroying an Android View releases its Bitmap cache, and macOS cache entries use balanced Core Foundation ownership.
 macOS maps source and destination rectangles while drawing the retained full CGImage, avoiding a cropped CGImage allocation per command.
 
 The current Android, macOS, and Windows backends decode synchronously on the first cache miss.
-A future asynchronous backend keeps loading and failure state inside the renderer, draws no image while loading, and asks its host to schedule a frame when decoding completes.
+The Web backend keeps asynchronous loading and failure state inside its renderer, draws no image while loading, and asks its PlatformAdapter to schedule a frame when decoding completes.
 
 A later preload service may warm native caches without changing ImageAsset, Image, or DrawImageCommand.
 
@@ -518,7 +578,7 @@ New backends implement PlatformResources and native image replay without adding 
 ### iOS
 
 iOS reads the reserved resource directory from the application bundle and uses the same versioned index as macOS.
-ImageIO produces renderer-owned CGImage values, while the host reports system Locale and display scale through ResourceConfiguration.
+ImageIO produces renderer-owned CGImage values, while the platform adapter reports system Locale and display scale through ResourceConfiguration.
 Security-scoped URLs are native service inputs whose bytes may be converted to ImageAsset with FromEncoded; they are not package ResourceIds.
 
 ### OHOS
@@ -536,11 +596,12 @@ The Linux renderer decodes PNG and JPEG through libpng and libjpeg into a bounde
 
 ### Web
 
-The Web host loads the generated resource index and payload before creating Runtime, then exposes them through WASM memory or a virtual filesystem.
+The Web entry integration loads the generated resource index and payload before creating Runtime, then exposes them through WASM memory or a virtual filesystem.
 Resource lookup and localized string formatting therefore remain synchronous after application startup.
 
 Browser-native image decoding may complete asynchronously.
-The Web renderer keeps its loading entry, creates an ImageBitmap, CanvasImageSource, or graphics texture, and requests another frame through its host when the image becomes ready.
+The Web renderer keeps its loading entry, creates an ImageBitmap, and requests another frame through WebPlatformAdapter when the image becomes ready.
+Decoded browser images follow the same 64 MiB renderer-owned LRU budget as native decoded-image caches.
 The current PaintSequence remains valid because DrawImageCommand already retains immutable encoded bytes and complete geometry.
 
 Network fetches are not ResourceIds.
@@ -654,6 +715,7 @@ Missing or extra arguments produce `std::invalid_argument` diagnostics containin
 Text::Format with a string view remains the lightweight formatter for non-localized application text.
 Its StringResource overload performs locale resolution and message validation before Text stores the final UTF-8 value.
 UseString exposes the same resolution for non-Text consumers.
+StringVariant::Format retains the resource identity and formatted arguments until a deferred consumer composes in its captured Environment.
 
 ### Deferred plural and select messages
 
@@ -684,18 +746,18 @@ huxerui:strings/select_all
 The framework bundle provides a default locale and supported translations.
 An application override is explicit and validated rather than achieved by claiming the framework domain.
 
-Once framework localization is implemented, ad hoc built-in label Environment values should be removed in the same breaking change rather than retained as legacy aliases.
+Once framework localization is implemented, current internal fallback labels move into the framework bundle without adding an ad hoc public label Environment value.
 
 ## Invalidation and retained rendering
 
 Resource reads participate in the existing dependency and invalidation model:
 
-- UseString, Text resource construction, Text resource formatting, and UseImage resolve from the Runtime-owned service during composition without allocating state slots.
-- An Image constructed from ImageResource resolves that key during composition and retains the resulting immutable ImageAsset.
+- UseString, Text resource construction, Text resource formatting, UseImage, and UseVectorImage resolve from the Runtime-owned service during composition without allocating state slots.
+- An Image constructed from ImageResource resolves that key during composition and retains the resulting immutable raster or vector asset.
 - ResourceConfiguration changes currently invalidate the root composition so locale and density variants are selected consistently.
 - Reconciliation limits a changed image asset or intrinsic size to the affected node's measure, layout, and paint paths.
-- An unchanged ImageAsset compares equal and preserves its recorded PaintSequence.
-- Presentation-only changes continue to reuse the image command and native decoded bitmap.
+- An unchanged image asset compares equal and preserves its recorded PaintSequence.
+- Presentation-only changes continue to reuse raster image commands, decoded bitmaps, and expanded vector paths.
 
 Release resource bundles are immutable.
 A future development hot-reload implementation may publish content revisions through the same dependency records without introducing a second invalidation path.
@@ -708,6 +770,7 @@ The current resource tool rejects:
 - Invalid resource namespaces, paths, locale tags, and image scales.
 - Image files whose metadata cannot be read.
 - Scale variants with inconsistent intrinsic logical dimensions.
+- SVG density suffixes, mixed raster/vector variants, and unsupported SVG elements, attributes, styles, or units.
 - Malformed format templates.
 - Non-contiguous default argument indices.
 - Translations that reference undeclared indices.
@@ -720,7 +783,7 @@ ImageAsset::FromFile uses `std::invalid_argument` for inaccessible or unreadable
 Image and PaintContext validate non-finite geometry, invalid source rectangles, invalid alignment values, and opacity outside `[0, 1]` at the earliest public boundary.
 
 Public API and runtime diagnostics are English, begin with `HuxerUI`, and include the relevant ResourceId, path, locale, variant, or argument index.
-Resource generator diagnostics are English and use the `huxerui-resource-codegen:` CLI prefix.
+Asset packaging diagnostics are English and use the `hapt:` CLI prefix.
 
 ## Validation
 
@@ -730,6 +793,8 @@ The initial implementation has focused shared coverage for:
 - Locale normalization and fallback.
 - Scale-variant selection.
 - ImageAsset moved-byte and copied-byte metadata, scale, equality, and byte-lifetime behavior.
+- VectorAsset construction, immutable geometry, painting, tint, and validation.
+- SVG compilation, payload signatures, runtime resolution, unsupported features, and density-suffix rejection.
 - RawAsset byte, MIME, string-view lifetime, embedded-null, and owned-string behavior.
 - Indexed string lookup, default argument-count enforcement, and invalid template generation.
 - Direct Text resource construction and Text resource formatting.
@@ -740,7 +805,7 @@ The initial implementation has focused shared coverage for:
 Every renderer implements image decode, cropping, destination scaling, sampling, and bounded native caches.
 Windows common builds and tests plus Android compilation are required for this implementation; macOS must be built on macOS before release.
 
-Future platform and SDK work adds installed-package, module-merge, iOS, OHOS, Linux, and Web packaging validation as those backends become available.
+Future platform and SDK work adds installed-package, module-merge, iOS, OHOS, Linux, and Web release-packaging validation as those capabilities become available.
 
 ## Delivery sequence
 
@@ -750,6 +815,7 @@ The delivery sequence is:
 - Add ResourceId, typed keys, resource index generation, PlatformResources, AppResources, Locale, and package staging.
 - Add RawResource and RawAsset as the smallest byte-loading path and use it to validate the package boundary.
 - Add ImageAsset factories, ImageResource resolution, Image, DrawImageCommand, Canvas replay, and the current Android, macOS, and Windows native decoders.
+- Add VectorAsset construction, compiled SVG resources, automatic ImageResource format detection, vector tint, and shared path replay.
 - Add StringResource formatting and locale fallback.
 - Add inherited Locale text shaping and migrate framework strings. This remains planned.
 - Integrate generated resource keys and module bundle merging into the SDK and CLI delivery sequence. This remains planned.
@@ -761,9 +827,10 @@ Each slice updates public headers, standalone-header checks, common tests, platf
 - Resource keys are typed; a generic public Resource template is not introduced.
 - Resource payload values are immutable and cheap to copy.
 - ImageAsset exposes encoded bytes but never native image objects or ambiguous decoded pixel data.
+- VectorAsset exposes immutable platform-neutral geometry without a public ImageKind or native path objects.
 - RawResource is the explicit arbitrary-byte resource kind.
 - PlatformResources returns shared RawAsset storage and does not require an intermediate byte-vector copy.
-- Packaged resources are synchronously readable before Runtime starts; a Web host performs asynchronous transport during startup.
+- Packaged resources are synchronously readable before Runtime starts; the Web entry integration performs asynchronous transport during startup.
 - Filesystem construction is synchronous and distinct from native URI services.
 - Localized formatting uses indexed positional arguments and permits translation reordering.
 - StringResource values resolve during composition and never enter PaintCommand as resources.

@@ -35,6 +35,8 @@ using Microsoft::WRL::ComPtr;
 
 constexpr float kDipsPerInch = 96.0F;
 constexpr float kFullCircle = 6.28318530717958647692F;
+// The effect property stores the enum as UINT32; some MinGW headers expose the property but omit its enum.
+constexpr UINT32 kShadowOptimizationBalanced = 1U;
 
 void ThrowIfFailed(HRESULT result, const char* message) {
   if (FAILED(result)) {
@@ -1120,13 +1122,8 @@ struct Win32Renderer::State {
     }
 
     RenderSequence(node.content);
-    if (node.child_clip.has_value()) {
-      RenderCommand(
-          PushClipCommand{
-              node.child_clip->rect,
-              node.child_clip->corner_radius,
-          }
-      );
+    for (const RenderClip& clip : node.child_clips) {
+      std::visit([this](const auto& command) { RenderCommand(command); }, clip);
     }
     const bool children_transformed = !node.children_transform.IsIdentity();
     if (children_transformed) {
@@ -1140,7 +1137,7 @@ struct Win32Renderer::State {
     if (children_transformed) {
       RenderCommand(PopTransformCommand{});
     }
-    if (node.child_clip.has_value()) {
+    for (std::size_t index = 0; index < node.child_clips.size(); ++index) {
       RenderCommand(PopClipCommand{});
     }
     RenderSequence(node.foreground);
@@ -1494,7 +1491,7 @@ struct Win32Renderer::State {
             D2D1_SHADOW_PROP_COLOR,
             D2D1_VECTOR_4F{command.color.red, command.color.green, command.color.blue, command.color.alpha}
         )) ||
-        FAILED(shadow_effect_->SetValue(D2D1_SHADOW_PROP_OPTIMIZATION, D2D1_SHADOW_OPTIMIZATION_BALANCED))) {
+        FAILED(shadow_effect_->SetValue(D2D1_SHADOW_PROP_OPTIMIZATION, kShadowOptimizationBalanced))) {
       shadow_effect_->SetInput(0, nullptr);
       return;
     }
@@ -1615,7 +1612,7 @@ struct Win32Renderer::State {
             D2D1_SHADOW_PROP_COLOR,
             D2D1_VECTOR_4F{command.color.red, command.color.green, command.color.blue, command.color.alpha}
         )) ||
-        FAILED(shadow_effect_->SetValue(D2D1_SHADOW_PROP_OPTIMIZATION, D2D1_SHADOW_OPTIMIZATION_BALANCED))) {
+        FAILED(shadow_effect_->SetValue(D2D1_SHADOW_PROP_OPTIMIZATION, kShadowOptimizationBalanced))) {
       shadow_effect_->SetInput(0, nullptr);
       return;
     }
@@ -1864,6 +1861,7 @@ void Win32Renderer::Discard() noexcept {
   state_->paragraphs_.clear();
   state_->text_runs_.clear();
   state_->font_metrics_.clear();
+  state_->wic_factory_.Reset();
   state_->write_factory_.Reset();
   state_->d2d_factory_.Reset();
   state_->window_ = nullptr;
