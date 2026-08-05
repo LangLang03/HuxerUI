@@ -1,5 +1,9 @@
 #pragma once
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -8,6 +12,7 @@
 #include <vector>
 
 #include <huxerui/clipboard.h>
+#include <huxerui/environment.h>
 #include <huxerui/event.h>
 #include <huxerui/layer.h>
 #include <huxerui/render_scene.h>
@@ -29,6 +34,7 @@ struct AppOptions {
   std::string title = "HuxerUI";
   float width = 520.0F;
   float height = 360.0F;
+  ViewportBreakpoints viewport_breakpoints;
 #if defined(NDEBUG)
   bool show_debug_overlay = false;
 #else
@@ -222,6 +228,14 @@ int RunApp(AppDefinition definition);
     }); \
     return true; \
   }(); \
+  }
+#elif defined(TARGET_OS_IOS) && TARGET_OS_IOS
+#define HUXERUI_APP(app_root, ...) \
+  extern "C" int HuxerUIRunApplication() { \
+    return ::huxerui::RunApp({ \
+        .root_factory = (app_root), \
+        .options = __VA_ARGS__, \
+    }); \
   }
 #else
 #define HUXERUI_APP(app_root, ...) \

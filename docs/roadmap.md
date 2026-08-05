@@ -1,6 +1,6 @@
 # Roadmap
 
-The current foundation includes shared state and recomposition, local measurement and layout invalidation, retained subtree rendering, shared damage tracking, native partial redraw on macOS, Windows, and Linux, custom and built-in layout, virtualized containers, retained modifiers, animation, scrolling, themes, shadows, Canvas and Path drawing, typed app resources, Image, layers, controlled text editing, installable desktop CMake targets, CLI project generation, diagnostics, Android device discovery, platform build and launch orchestration, Android, Linux, macOS, and Windows backends, and an Emscripten Web technical preview.
+The current foundation includes shared state and recomposition, responsive viewport classes, local measurement and layout invalidation, retained subtree rendering, shared damage tracking, native partial redraw on macOS, Windows, and Linux, custom and built-in layout, virtualized containers, retained modifiers, animation, scrolling, Tabs, themes, shadows, Canvas and Path drawing, typed app resources, Image, layers, controlled text editing, installable platform-specific CMake targets, CLI project generation, diagnostics, Android and iOS device discovery, platform build and launch orchestration, Android, iOS, Linux, macOS, and Windows backends, and iOS and Emscripten Web technical previews.
 
 Runtime foundation work:
 
@@ -25,7 +25,8 @@ SDK, native integration, and distribution work:
 - Typed platform modules and generated static registration
 - NativeView lifecycle, reconciliation, host composition, focus, and accessibility
 - Versioned SDK distribution and signing support
-- iOS and OHOS backends
+- iOS archive export, distribution signing, embeddable UIView integration, and accessibility
+- OHOS backend
 - Web semantics and accessibility, browser integration tests, release packaging, and mobile IME validation following the [Web Platform Design](design/web.md)
 
 The completed Runtime invalidation foundation supports retained Canvas drawing and enables page-transition and NativeView expansion.

@@ -151,6 +151,8 @@ struct ChipStyle {
   Color disabled_border = Color::Rgb(31, 35, 40, 0.12F);
   Color disabled_selected_border = Color::Transparent();
   EdgeInsets padding = EdgeInsets::Symmetric(12.0F, 5.0F);
+  float icon_size = 16.0F;
+  float icon_spacing = 8.0F;
   float minimum_height = 28.0F;
   float corner_radius = 14.0F;
   float border_width = 1.0F;
@@ -160,6 +162,68 @@ struct ChipStyle {
   static ChipStyle Default();
 
   bool operator==(const ChipStyle&) const = default;
+};
+
+struct DividerStyle {
+  Color color = Color::Rgb(31, 35, 40, 0.12F);
+  float thickness = 1.0F;
+
+  static DividerStyle Default();
+
+  bool operator==(const DividerStyle&) const = default;
+};
+
+struct SegmentedButtonStyle {
+  Color background = Color::White();
+  Color selected_background = Color::Rgb(31, 111, 235);
+  TextStyle label_style{Font::System(14.0F), Color::Rgb(31, 35, 40)};
+  Color selected_label = Color::White();
+  Color border = Color::Rgb(31, 35, 40, 0.24F);
+  Color selected_border = Color::Rgb(31, 111, 235);
+  EdgeInsets padding = EdgeInsets::Symmetric(14.0F, 7.0F);
+  float icon_size = 16.0F;
+  float icon_spacing = 8.0F;
+  float minimum_segment_width = 48.0F;
+  float minimum_height = 32.0F;
+  float corner_radius = 8.0F;
+  float border_width = 1.0F;
+  std::optional<IndicationSpec> indication;
+  std::optional<IndicationSpec> selected_indication;
+
+  static SegmentedButtonStyle Default();
+
+  bool operator==(const SegmentedButtonStyle&) const = default;
+};
+
+enum class TabIndicatorSizing {
+  Item,
+  Content,
+};
+
+struct TabsStyle {
+  Color background = Color::Transparent();
+  TextStyle label_style{Font::System(14.0F), Color::Rgb(31, 35, 40)};
+  Color selected_label = Color::Rgb(31, 111, 235);
+  Color disabled_label = Color::Rgb(31, 35, 40, 0.38F);
+  Color indicator = Color::Rgb(31, 111, 235);
+  TabIndicatorSizing indicator_sizing = TabIndicatorSizing::Item;
+  float indicator_min_width = 0.0F;
+  float indicator_height = 2.0F;
+  float indicator_corner_radius = 1.0F;
+  Color divider_color = Color::Transparent();
+  float divider_height = 0.0F;
+  EdgeInsets item_padding = EdgeInsets::Symmetric(12.0F, 8.0F);
+  float icon_size = 18.0F;
+  float icon_spacing = 8.0F;
+  float minimum_item_width = 48.0F;
+  float minimum_height = 36.0F;
+  bool expand_items = false;
+  std::optional<IndicationSpec> indication;
+  double indicator_animation_duration = 0.16;
+
+  static TabsStyle Default();
+
+  bool operator==(const TabsStyle&) const = default;
 };
 
 struct TextFieldStyle {
@@ -429,6 +493,9 @@ const std::any* FindThemeStyleValue(std::shared_ptr<const Environment> environme
 TextStyle DefaultTextStyle(const ThemeSpec& theme, TextRole role = TextRole::Body);
 ButtonStyle DefaultButtonStyle(const ThemeSpec& theme);
 ChipStyle DefaultChipStyle(const ThemeSpec& theme);
+DividerStyle DefaultDividerStyle(const ThemeSpec& theme);
+SegmentedButtonStyle DefaultSegmentedButtonStyle(const ThemeSpec& theme);
+TabsStyle DefaultTabsStyle(const ThemeSpec& theme);
 TextFieldStyle DefaultTextFieldStyle(const ThemeSpec& theme);
 CheckboxStyle DefaultCheckboxStyle(const ThemeSpec& theme);
 RadioButtonStyle DefaultRadioButtonStyle(const ThemeSpec& theme);

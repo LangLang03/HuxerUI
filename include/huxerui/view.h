@@ -5,6 +5,7 @@
 #include <concepts>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -16,6 +17,7 @@
 #include <type_traits>
 #include <typeindex>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <huxerui/color.h>
@@ -53,6 +55,8 @@ enum class ImageFit {
 
 namespace detail {
 struct ViewSpec;
+struct SegmentedButtonItemAccess;
+struct TabItemAccess;
 class VirtualMeasureSession;
 } // namespace detail
 
@@ -542,8 +546,105 @@ public:
   Chip(std::string_view label, bool selected);
   Chip(const char* label, bool selected);
 
+  Chip(ImageResource icon, StringVariant label);
+  Chip(ImageAsset icon, StringVariant label);
+  Chip(VectorAsset icon, StringVariant label);
+  Chip(ImageResource icon, StringVariant label, bool selected);
+  Chip(ImageAsset icon, StringVariant label, bool selected);
+  Chip(VectorAsset icon, StringVariant label, bool selected);
+
   template <class Function> Chip OnChanged(Function&& function) && {
     return std::move(*this).On<ToggleEvents::Changed>(std::forward<Function>(function));
+  }
+};
+
+class Divider final : public View {
+public:
+  explicit Divider(Axis axis = Axis::Horizontal);
+};
+
+class SegmentedButtonItem final {
+public:
+  explicit SegmentedButtonItem(StringVariant label);
+  SegmentedButtonItem(ImageResource icon, StringVariant label);
+  SegmentedButtonItem(ImageAsset icon, StringVariant label);
+  SegmentedButtonItem(VectorAsset icon, StringVariant label);
+
+  static SegmentedButtonItem IconOnly(ImageResource icon, StringVariant semantic_label);
+  static SegmentedButtonItem IconOnly(ImageAsset icon, StringVariant semantic_label);
+  static SegmentedButtonItem IconOnly(VectorAsset icon, StringVariant semantic_label);
+
+private:
+  using Icon = std::variant<std::monostate, ImageResource, ImageAsset, VectorAsset>;
+
+  SegmentedButtonItem(Icon icon, StringVariant label, bool show_label);
+
+  Icon icon_;
+  StringVariant label_;
+  bool show_label_ = true;
+
+  friend struct detail::SegmentedButtonItemAccess;
+};
+
+class SegmentedButton final : public detail::TypedView<SegmentedButton> {
+public:
+  SegmentedButton(std::initializer_list<StringVariant> labels, std::size_t selected_index)
+      : SegmentedButton(std::vector<StringVariant>(labels), selected_index) {}
+  SegmentedButton(std::initializer_list<StringVariant> labels, const State<std::size_t>& selected_index)
+      : SegmentedButton(std::vector<StringVariant>(labels), selected_index.Get()) {}
+  SegmentedButton(std::vector<StringVariant> labels, std::size_t selected_index);
+  SegmentedButton(std::vector<StringVariant> labels, const State<std::size_t>& selected_index)
+      : SegmentedButton(std::move(labels), selected_index.Get()) {}
+  SegmentedButton(std::vector<SegmentedButtonItem> items, std::size_t selected_index);
+  SegmentedButton(std::vector<SegmentedButtonItem> items, const State<std::size_t>& selected_index)
+      : SegmentedButton(std::move(items), selected_index.Get()) {}
+
+  template <class Function> SegmentedButton OnChanged(Function&& function) && {
+    return std::move(*this).On<SegmentedButtonEvents::Changed>(std::forward<Function>(function));
+  }
+};
+
+class TabItem final {
+public:
+  explicit TabItem(StringVariant label);
+  TabItem(ImageResource icon, StringVariant label);
+  TabItem(ImageAsset icon, StringVariant label);
+  TabItem(VectorAsset icon, StringVariant label);
+
+  static TabItem IconOnly(ImageResource icon, StringVariant semantic_label);
+  static TabItem IconOnly(ImageAsset icon, StringVariant semantic_label);
+  static TabItem IconOnly(VectorAsset icon, StringVariant semantic_label);
+
+  TabItem Enabled(bool enabled) &&;
+
+private:
+  using Icon = std::variant<std::monostate, ImageResource, ImageAsset, VectorAsset>;
+
+  TabItem(Icon icon, StringVariant label, bool show_label);
+
+  Icon icon_;
+  StringVariant label_;
+  bool show_label_ = true;
+  bool enabled_ = true;
+
+  friend struct detail::TabItemAccess;
+};
+
+class Tabs final : public detail::TypedView<Tabs> {
+public:
+  Tabs(std::initializer_list<StringVariant> labels, std::size_t selected_index)
+      : Tabs(std::vector<StringVariant>(labels), selected_index) {}
+  Tabs(std::initializer_list<StringVariant> labels, const State<std::size_t>& selected_index)
+      : Tabs(std::vector<StringVariant>(labels), selected_index.Get()) {}
+  Tabs(std::vector<StringVariant> labels, std::size_t selected_index);
+  Tabs(std::vector<StringVariant> labels, const State<std::size_t>& selected_index)
+      : Tabs(std::move(labels), selected_index.Get()) {}
+  Tabs(std::vector<TabItem> items, std::size_t selected_index);
+  Tabs(std::vector<TabItem> items, const State<std::size_t>& selected_index)
+      : Tabs(std::move(items), selected_index.Get()) {}
+
+  template <class Function> Tabs OnChanged(Function&& function) && {
+    return std::move(*this).On<TabsEvents::Changed>(std::forward<Function>(function));
   }
 };
 
@@ -633,6 +734,8 @@ class Checkbox final : public detail::TypedView<Checkbox> {
 public:
   explicit Checkbox(bool checked);
   explicit Checkbox(const State<bool>& checked) : Checkbox(checked.Get()) {}
+  Checkbox(StringVariant label, bool checked);
+  Checkbox(StringVariant label, const State<bool>& checked) : Checkbox(std::move(label), checked.Get()) {}
 
   template <class Function> Checkbox OnChanged(Function&& function) && {
     return std::move(*this).On<ToggleEvents::Changed>(std::forward<Function>(function));
@@ -643,6 +746,8 @@ class RadioButton final : public detail::TypedView<RadioButton> {
 public:
   explicit RadioButton(bool selected);
   explicit RadioButton(const State<bool>& selected) : RadioButton(selected.Get()) {}
+  RadioButton(StringVariant label, bool selected);
+  RadioButton(StringVariant label, const State<bool>& selected) : RadioButton(std::move(label), selected.Get()) {}
 
   template <class Function> RadioButton OnChanged(Function&& function) && {
     return std::move(*this).On<ToggleEvents::Changed>(std::forward<Function>(function));
@@ -653,6 +758,8 @@ class Switch final : public detail::TypedView<Switch> {
 public:
   explicit Switch(bool checked);
   explicit Switch(const State<bool>& checked) : Switch(checked.Get()) {}
+  Switch(StringVariant label, bool checked);
+  Switch(StringVariant label, const State<bool>& checked) : Switch(std::move(label), checked.Get()) {}
 
   template <class Function> Switch OnChanged(Function&& function) && {
     return std::move(*this).On<ToggleEvents::Changed>(std::forward<Function>(function));

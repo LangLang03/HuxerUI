@@ -8,15 +8,15 @@
 
 <p align="center"><a href="docs/getting-started.md">Getting Started</a> · <a href="docs/core-concepts.md">Core Concepts</a> · <a href="docs/design/architecture.md">Architecture</a> · <a href="docs/roadmap.md">Roadmap</a></p>
 
-HuxerUI brings a functional, declarative UI model to C++20. Android, Linux, macOS, Windows, and the Web technical preview share the same state, recomposition, layout, input, scrolling, text editing, animation, and retained-scene runtime while retaining platform-specific integration, text systems, and renderers.
+HuxerUI brings a functional, declarative UI model to C++20. Android, iOS, Linux, macOS, Windows, and the Web technical preview share the same state, recomposition, layout, input, scrolling, text editing, animation, and retained-scene runtime while retaining platform-specific integration, text systems, and renderers.
 
 ## Why HuxerUI
 
 | Declarative C++ | Shared Runtime | Native Integration |
 |---|---|---|
-| Compose interfaces with ordinary C++ functions, typed state, events, themes, and modifiers. | Reuse one implementation of reconciliation, layout, interaction, virtualization, animation, and text editing. | Integrate through Android View, AppKit, Win32, X11, or an Emscripten Canvas while preserving platform services. |
+| Compose interfaces with ordinary C++ functions, typed state, events, themes, and modifiers. | Reuse one implementation of reconciliation, layout, interaction, virtualization, animation, and text editing. | Integrate through Android View, UIKit, AppKit, Win32, X11, or an Emscripten Canvas while preserving platform services. |
 
-HuxerUI includes Row, Column, Flow, Stack, ScrollView, virtual lists and grids, controlled text editing, selection, validation, Flat and Material themes, retained animation, shadows, Canvas and Path drawing, typed app resources, Image, Toast, Dialog, BottomSheet, Popup, Menu, custom layouts, and typed extension points.
+HuxerUI includes Row, Column, Flow, Stack, ScrollView, virtual lists and grids, responsive viewport classes, Tabs, controlled text editing, selection, validation, Flat and Material themes, retained animation, shadows, Canvas and Path drawing, typed app resources, Image, Toast, Dialog, BottomSheet, Popup, Menu, custom layouts, and typed extension points.
 
 ## Quick Start
 
@@ -74,18 +74,19 @@ ctest --test-dir build --output-on-failure
 Top-level builds also produce the `huxerui` CLI:
 
 ```bash
-huxerui create hello_huxer --platform android,windows,macos,web
+huxerui create hello_huxer --platform android,ios,windows,macos,web
 huxerui doctor
-huxerui devices android
+huxerui devices ios
+huxerui open ios
 huxerui build windows
 huxerui run windows
 ```
 
-The CLI creates and validates source-controlled platform shells, discovers Android devices, builds enabled Android, Windows, macOS, and Web targets from compatible hosts, and launches development artifacts.
-The CMake install exports a desktop SDK package, the CLI, and host code generators.
-Android and Web CLI projects currently build against a source SDK checkout; installed Android artifacts, package commands, and module integration remain staged work.
+The CLI creates and validates source-controlled platform shells, including a native Xcode project for iOS, discovers Android and iOS devices, builds enabled Android, iOS Simulator or physical-device, Windows, macOS, and Web targets from compatible hosts, and launches development artifacts.
+The CMake install exports a platform-specific SDK package, the CLI, and host code generators.
+Android and Web CLI projects currently build against a source SDK checkout. iOS accepts either a source checkout or an installed SDK built for the selected Apple SDK and architectures; versioned mobile distribution artifacts, package commands, and module integration remain staged work.
 
-See [Getting Started](docs/getting-started.md) for application setup, Windows and Android builds, CMake options, code generation, and example launch commands.
+See [Getting Started](docs/getting-started.md) for application setup, platform builds, CMake options, code generation, and example launch commands.
 
 ## Platform Support
 
@@ -93,10 +94,11 @@ See [Getting Started](docs/getting-started.md) for application setup, Windows an
 |---|---|---|
 | Android | Supported | View, Canvas, StaticLayout, InputConnection |
 | Linux | Supported | X11, Cairo, Vulkan, FreeType, HarfBuzz, XIM |
+| iOS | Technical preview | UIKit, CoreGraphics, CoreText, UITextInput |
 | macOS | Supported | AppKit, CoreGraphics, CoreText, NSTextInputClient |
 | Windows | Supported | Win32, D3D11, Direct2D, DirectWrite |
 | Web | Technical preview | Emscripten, WebAssembly, Canvas 2D, browser text input |
-| iOS, OHOS | Planned | Shared Runtime with platform-specific hosts |
+| OHOS | Planned | Shared Runtime with platform-specific hosts |
 
 See [Platform Support](docs/platform-support.md) for backend responsibilities and integration details.
 
@@ -143,6 +145,7 @@ See [Platform Support](docs/platform-support.md) for backend responsibilities an
 | `example_custom_event` | Typed custom component events |
 | `example_presentation` | Toast, Dialog, BottomSheet, Popup, and Menu presentation |
 | `example_theme` | Material, Flat, nested themes, and style precedence |
+| `example_tabs` | Controlled Tabs, disabled items, theme policies, and viewport classes |
 | `example_environment` | Typed defaults, inheritance, and nested overrides |
 | `example_canvas` | Path fill, stroke, clipping, shadows, and Canvas-local drawing |
 | `example_image` | Raster variants, compiled SVG resources, VectorAsset tint, localized strings, and Image fitting |

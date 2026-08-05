@@ -185,11 +185,73 @@ ChipStyle MaterialChipStyle(const ThemeSpec& theme) {
       .disabled_border = disabled_border,
       .disabled_selected_border = Color::Transparent(),
       .padding = EdgeInsets::Symmetric(theme.spacing.medium, theme.spacing.extra_small),
+      .icon_size = 18.0F,
+      .icon_spacing = theme.spacing.small,
       .minimum_height = 32.0F,
       .corner_radius = theme.shapes.small,
       .border_width = 1.0F,
       .indication = MaterialIndication(theme.colors.on_surface_variant, theme),
       .selected_indication = MaterialIndication(theme.colors.on_secondary_container, theme),
+  };
+}
+
+SegmentedButtonStyle MaterialSegmentedButtonStyle(const ThemeSpec& theme) {
+  return {
+      .background = Color::Transparent(),
+      .selected_background = theme.colors.secondary_container,
+      .label_style = TextStyle{Font::System(theme.typography.label_large), theme.colors.on_surface},
+      .selected_label = theme.colors.on_secondary_container,
+      .border = theme.colors.outline,
+      .selected_border = theme.colors.outline,
+      .padding = EdgeInsets::Symmetric(theme.spacing.medium, theme.spacing.small),
+      .icon_size = 18.0F,
+      .icon_spacing = theme.spacing.small,
+      .minimum_segment_width = 48.0F,
+      .minimum_height = 40.0F,
+      .corner_radius = 20.0F,
+      .border_width = 1.0F,
+      .indication = MaterialIndication(theme.colors.on_surface, theme),
+      .selected_indication = MaterialIndication(theme.colors.on_secondary_container, theme),
+  };
+}
+
+TabsStyle MaterialTabsStyle(const ThemeSpec& theme) {
+  Color disabled_label = theme.colors.on_surface;
+  disabled_label.alpha *= 0.38F;
+  Color divider_color = theme.colors.outline;
+  divider_color.alpha *= 0.4F;
+  return {
+      .background = theme.colors.surface,
+      .label_style = TextStyle{
+          Font::System(theme.typography.label_large).WithWeight(FontWeight::Medium),
+          theme.colors.on_surface_variant,
+      },
+      .selected_label = theme.colors.primary,
+      .disabled_label = disabled_label,
+      .indicator = theme.colors.primary,
+      .indicator_sizing = TabIndicatorSizing::Content,
+      .indicator_min_width = 24.0F,
+      .indicator_height = 3.0F,
+      .indicator_corner_radius = 1.5F,
+      .divider_color = divider_color,
+      .divider_height = 1.0F,
+      .item_padding = EdgeInsets::Symmetric(theme.spacing.medium, theme.spacing.small),
+      .icon_size = 24.0F,
+      .icon_spacing = theme.spacing.small,
+      .minimum_item_width = 64.0F,
+      .minimum_height = 48.0F,
+      .expand_items = true,
+      .indication = MaterialIndication(theme.colors.primary, theme),
+      .indicator_animation_duration = theme.motion.reduced_motion ? 0.0 : theme.motion.normal,
+  };
+}
+
+DividerStyle MaterialDividerStyle(const ThemeSpec& theme) {
+  Color color = theme.colors.outline;
+  color.alpha *= 0.4F;
+  return {
+      .color = color,
+      .thickness = 1.0F,
   };
 }
 
@@ -485,6 +547,9 @@ ThemeDefinition MaterialDefinition(ThemeSpec theme) {
   ThemeDefinition definition{theme};
   definition.Set(MaterialButtonStyle(theme));
   definition.Set(MaterialChipStyle(theme));
+  definition.Set(MaterialSegmentedButtonStyle(theme));
+  definition.Set(MaterialTabsStyle(theme));
+  definition.Set(MaterialDividerStyle(theme));
   definition.Set(MaterialTextFieldStyle(theme));
   definition.Set(MaterialCheckboxStyle(theme));
   definition.Set(MaterialRadioButtonStyle(theme));
@@ -592,11 +657,70 @@ ChipStyle DefaultChipStyle(const ThemeSpec& theme) {
       .disabled_border = disabled_border,
       .disabled_selected_border = Color::Transparent(),
       .padding = EdgeInsets::Symmetric(theme.spacing.medium, theme.spacing.extra_small),
+      .icon_size = 16.0F,
+      .icon_spacing = theme.spacing.small,
       .minimum_height = 28.0F,
       .corner_radius = 14.0F,
       .border_width = 1.0F,
       .indication = std::nullopt,
       .selected_indication = std::nullopt,
+  };
+}
+
+SegmentedButtonStyle DefaultSegmentedButtonStyle(const ThemeSpec& theme) {
+  Color border = theme.colors.on_surface;
+  border.alpha *= 0.24F;
+  return {
+      .background = theme.colors.surface,
+      .selected_background = theme.colors.primary,
+      .label_style = TextStyle{Font::System(theme.typography.label_large), theme.colors.on_surface},
+      .selected_label = theme.colors.on_primary,
+      .border = border,
+      .selected_border = theme.colors.primary,
+      .padding = EdgeInsets::Symmetric(theme.spacing.medium, theme.spacing.small),
+      .icon_size = 16.0F,
+      .icon_spacing = theme.spacing.small,
+      .minimum_segment_width = 48.0F,
+      .minimum_height = 32.0F,
+      .corner_radius = theme.shapes.small,
+      .border_width = 1.0F,
+      .indication = std::nullopt,
+      .selected_indication = std::nullopt,
+  };
+}
+
+TabsStyle DefaultTabsStyle(const ThemeSpec& theme) {
+  Color disabled_label = theme.colors.on_surface;
+  disabled_label.alpha *= theme.interactions.disabled_opacity;
+  return {
+      .background = Color::Transparent(),
+      .label_style = TextStyle{Font::System(theme.typography.label_large), theme.colors.on_surface},
+      .selected_label = theme.colors.primary,
+      .disabled_label = disabled_label,
+      .indicator = theme.colors.primary,
+      .indicator_sizing = TabIndicatorSizing::Item,
+      .indicator_min_width = 0.0F,
+      .indicator_height = 2.0F,
+      .indicator_corner_radius = 1.0F,
+      .divider_color = Color::Transparent(),
+      .divider_height = 0.0F,
+      .item_padding = EdgeInsets::Symmetric(theme.spacing.medium, theme.spacing.small),
+      .icon_size = 18.0F,
+      .icon_spacing = theme.spacing.small,
+      .minimum_item_width = 48.0F,
+      .minimum_height = 36.0F,
+      .expand_items = false,
+      .indication = std::nullopt,
+      .indicator_animation_duration = theme.motion.reduced_motion ? 0.0 : theme.motion.fast,
+  };
+}
+
+DividerStyle DefaultDividerStyle(const ThemeSpec& theme) {
+  Color color = theme.colors.on_surface;
+  color.alpha *= 0.12F;
+  return {
+      .color = color,
+      .thickness = 1.0F,
   };
 }
 
@@ -801,6 +925,18 @@ ButtonStyle ButtonStyle::Default() {
 
 ChipStyle ChipStyle::Default() {
   return detail::DefaultChipStyle(ThemeSpec::Default());
+}
+
+SegmentedButtonStyle SegmentedButtonStyle::Default() {
+  return detail::DefaultSegmentedButtonStyle(ThemeSpec::Default());
+}
+
+TabsStyle TabsStyle::Default() {
+  return detail::DefaultTabsStyle(ThemeSpec::Default());
+}
+
+DividerStyle DividerStyle::Default() {
+  return detail::DefaultDividerStyle(ThemeSpec::Default());
 }
 
 TextFieldStyle TextFieldStyle::Default() {

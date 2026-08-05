@@ -273,6 +273,8 @@ protected:
 
 During `Paint()`, extensions append node-local PaintCommands through `PaintContext`. Runtime stores the resulting foreground PaintSequence on the node's RenderNode, and platform renderers apply the inherited layout and presentation transform while traversing RenderScene. Paint may extend beyond `Bounds()` unless an explicit clip limits it, and Runtime derives render visibility from recorded PaintSequence bounds and visible descendants. `PresentationBounds()` is the transformed axis-aligned host-view logical layout bounds. Pointer positions delivered to `NodeExtension::HitTest()` and `OnPointer()` are mapped back into the node's local coordinate space.
 
+An extension whose `HitTest()` returns true keeps its node on the topmost pointer route and prevents lower visual branches from receiving that pointer. Runtime may query `HitTest()` while constructing the route and again before dispatch, so implementations keep it deterministic and free of side effects.
+
 Clean content and foreground PaintSequences remain attached to their stable RenderNode. An extension calls `InvalidatePaint()` after changing paint-visible retained state; the operation invalidates only its owner's foreground sequence and schedules a frame when called outside frame construction.
 During frame construction, the current recording pass consumes that invalidation and `FrameResult` remains the only extension-controlled source of follow-up scheduling.
 
@@ -597,10 +599,13 @@ Environment carries:
 
 - Theme values.
 - Platform and accessibility values.
+- The runtime-managed viewport width class.
 - Per-window services.
 - Other typed third-party values.
 
 Theme and services reuse Environment rather than introducing parallel tree propagation systems.
+
+The public `UseViewportClass()` read resolves an internal Environment value with Compact, Medium, and Expanded states. `AppOptions::viewport_breakpoints` owns the two increasing width boundaries. `Runtime::SetViewport()` updates that value and invalidates the application root and layers only when the resolved class changes. Width and height do not become raw Environment values: measurement receives exact `Constraints`, and repeated resizing inside one class remains an incremental layout operation rather than a composition dependency.
 
 ## Theme
 
@@ -636,6 +641,9 @@ Component styles are typed Environment values:
 ```text
 TextStyle
 ButtonStyle
+ChipStyle
+SegmentedButtonStyle
+DividerStyle
 CheckboxStyle
 RadioButtonStyle
 SwitchStyle

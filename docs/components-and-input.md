@@ -28,14 +28,16 @@ Button, Checkbox, RadioButton, and Switch participate in focus traversal and sha
 auto checked = UseState(false);
 
 return Row {
-  Checkbox(checked).OnChanged([checked](bool value) {
+  Checkbox("Remember me", checked).OnChanged([checked](bool value) {
     checked = value;
   }),
-  Switch(checked).OnChanged([checked](bool value) {
+  Switch("Notifications", checked).OnChanged([checked](bool value) {
     checked = value;
   }),
 };
 ```
+
+Checkbox, RadioButton, and Switch also retain their label-free constructors for custom composition. A labeled control owns its label, uses the Theme spacing between the visual control and text, and treats the complete control as one focusable and clickable target.
 
 RadioButton represents one controlled choice rather than owning a group. Application state defines mutual exclusion, and activating an already selected RadioButton leaves the selection unchanged:
 
@@ -43,12 +45,12 @@ RadioButton represents one controlled choice rather than owning a group. Applica
 auto choice = UseState(0);
 
 return Row {
-  RadioButton(choice == 0).OnChanged([choice](bool selected) {
+  RadioButton("Option A", choice == 0).OnChanged([choice](bool selected) {
     if (selected) {
       choice = 0;
     }
   }),
-  RadioButton(choice == 1).OnChanged([choice](bool selected) {
+  RadioButton("Option B", choice == 1).OnChanged([choice](bool selected) {
     if (selected) {
       choice = 1;
     }
@@ -86,7 +88,102 @@ return Chip(selected ? "Selected" : "Selectable", selected)
     });
 ```
 
-`OnChanged` delegates to `On<ToggleEvents::Changed>`. Both forms participate in focus traversal and use the active Theme's indication and component style. Use `Enabled(false)` for a disabled Chip.
+Chip also accepts a leading image resource or resolved image asset while retaining its required text label:
+
+```cpp
+Chip(app_resources::images::filter, "Filters").OnClick(OpenFilters);
+
+Chip(vector_icon, "Selectable", selected)
+    .OnChanged([selected](bool value) {
+      selected = value;
+    });
+```
+
+`OnChanged` delegates to `On<ToggleEvents::Changed>`. Both forms participate in focus traversal and use the active Theme's indication and component style. `ChipStyle` owns the icon size and spacing. Vector icons follow the current label color, while raster assets preserve their encoded colors. Use `Enabled(false)` for a disabled Chip. Chip intentionally retains a visible label; compose a custom image action when an action should be icon-only.
+
+## SegmentedButton
+
+SegmentedButton presents a compact set of side-by-side choices and keeps selection controlled by the owner:
+
+```cpp
+auto period = UseState<std::size_t>(0);
+
+return SegmentedButton({"Day", "Week", "Month"}, period)
+    .OnChanged([period](std::size_t index) {
+      period = index;
+    });
+```
+
+Use `SegmentedButtonItem` when a segment includes an icon or visually displays only an icon:
+
+```cpp
+SegmentedButton(
+    {
+        SegmentedButtonItem("List"),
+        SegmentedButtonItem(app_resources::images::grid, "Grid"),
+        SegmentedButtonItem::IconOnly(app_resources::images::map, "Map"),
+    },
+    mode
+).OnChanged([mode](std::size_t index) {
+  mode = index;
+});
+```
+
+The label passed to `IconOnly` is required semantic content and is not drawn. `OnChanged` delegates to `On<SegmentedButtonEvents::Changed>`. Left and Right move through the choices with wrapping, while Home and End select the first and last choice. Use `Enabled(false)` to disable the complete control. `SegmentedButtonStyle` owns shared geometry, icon sizing and spacing, and selected and unselected colors. Use Chip when choices are independently selectable.
+
+SegmentedButton is intended for a small set of short choices, usually two to five. A larger or more descriptive choice set is clearer as RadioButton rows, Chip content, or a Menu.
+
+## Tabs
+
+Tabs represents selection among peer destinations while leaving the corresponding page content and lifecycle with the application. Selection is controlled by an index:
+
+```cpp
+auto selected = UseState<std::size_t>(0);
+
+return Tabs({"Overview", "Activity", "Settings"}, selected)
+    .OnChanged([selected](std::size_t index) {
+      selected = index;
+    });
+```
+
+Use `TabItem` for icons, icon-only presentation, or an individually disabled destination:
+
+```cpp
+Tabs(
+    {
+        TabItem(app_resources::images::home, "Home"),
+        TabItem::IconOnly(app_resources::images::search, "Search"),
+        std::move(TabItem("Reports")).Enabled(false),
+    },
+    selected
+).OnChanged([selected](std::size_t index) {
+  selected = index;
+});
+```
+
+The semantic label of an icon-only item is required but not drawn. Left and Right move with wrapping, Home and End move to the first and last enabled item, and every keyboard path skips disabled items. More tabs than the available width scroll horizontally, and a newly selected item is revealed automatically.
+
+`TabsStyle` owns label, indicator, and divider appearance; item metrics; indication; indicator motion; and the theme's width policy. Flat tabs keep their content widths and use an item-wide indicator. Material primary tabs divide available width equally until their natural content needs horizontal scrolling, use a 3 dp content-wide indicator with a 24 dp minimum width, and draw the standard divider when the row does not overflow. Tabs does not mount, cache, or transition page content; those responsibilities belong to a future navigation container rather than this selection control.
+
+## Divider
+
+Divider is horizontal by default and expands across a bounded width. Pass `Axis::Vertical` for a vertical divider:
+
+```cpp
+Column {
+  Text("First"),
+  Divider(),
+  Text("Second"),
+};
+
+Row {
+  Text("Left"),
+  Divider(Axis::Vertical).With(Frame{.height = 24.0F}),
+  Text("Right"),
+};
+```
+
+`DividerStyle` supplies the Theme color and thickness. `Frame`, `Padding`, and `Background` remain available for local geometry, inset, and color overrides. A vertical divider needs a bounded height, an explicit `Frame`, or a stretching parent layout.
 
 ## ProgressCircle
 
@@ -210,6 +307,6 @@ Rules return valid, invalid, or pending results. Applications decide whether to 
 
 `TextInputAction::Next` submits and moves to the next focusable control without wrapping. `Done`, `Go`, `Search`, and `Send` submit through `OnSubmitted`; on mobile, terminal actions dismiss the soft keyboard. `Default` resolves to `Done` for single-line fields and `Newline` for multiline fields.
 
-Android, macOS, and Windows use the same text-input session and command protocol. Platform adapters handle native IME lifecycle and coordinate conversion while the C++ runtime owns controlled value synchronization, selection, composition, undo, redo, and submission.
+Android, iOS, macOS, and Windows use the same text-input session and command protocol. Platform adapters handle native IME lifecycle and coordinate conversion while the C++ runtime owns controlled value synchronization, selection, composition, undo, redo, and submission.
 
 For protocol and platform details, see the [text input design](design/text-input.md).
