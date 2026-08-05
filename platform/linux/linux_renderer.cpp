@@ -41,6 +41,7 @@
 #include "linux_renderer.h"
 #include "path_internal.h"
 #include "resource_internal.h"
+#include "shadow_internal.h"
 #include "text_layout_internal.h"
 
 namespace huxerui::detail {
@@ -2036,53 +2037,39 @@ private:
   }
 
   void RenderCommand(const DrawShadowCommand& command) {
-    const float scale = state_.Scale();
-    const float blur_pixels = command.blur_radius * scale;
-    const Rect caster{
-        command.rect.x - command.spread,
-        command.rect.y - command.spread,
-        command.rect.width + command.spread * 2.0F,
-        command.rect.height + command.spread * 2.0F,
-    };
-    const Rect bounds{
-        caster.x + command.offset.x - command.blur_radius,
-        caster.y + command.offset.y - command.blur_radius,
-        caster.width + command.blur_radius * 2.0F,
-        caster.height + command.blur_radius * 2.0F,
-    };
-    if (bounds.width <= 0.0F || bounds.height <= 0.0F) {
+    const ResolvedShadow resolved = ResolveShadow(command);
+    if (resolved.IsEmpty() || command.color.alpha <= 0.0F) {
       return;
     }
     if (command.blur_radius <= 0.0F) {
-      SetSourceColor(cr_, command.color);
-      const Rect hard_caster{
-          caster.x + command.offset.x,
-          caster.y + command.offset.y,
-          caster.width,
-          caster.height,
-      };
-      AddRoundedRect(cr_, hard_caster, command.corner_radius);
-      cairo_fill(cr_);
+      RenderCommand(DrawRectCommand{resolved.caster, command.color, resolved.corner_radius});
       return;
     }
-    const int mask_width = std::max(1, static_cast<int>(std::ceil(bounds.width * scale)));
-    const int mask_height = std::max(1, static_cast<int>(std::ceil(bounds.height * scale)));
+    const float scale = state_.Scale();
+    const float blur_pixels = command.blur_radius * scale;
+    const int mask_width = std::max(1, static_cast<int>(std::ceil(resolved.bounds.width * scale)));
+    const int mask_height = std::max(1, static_cast<int>(std::ceil(resolved.bounds.height * scale)));
     cairo_surface_t* mask = cairo_image_surface_create(CAIRO_FORMAT_A8, mask_width, mask_height);
     cairo_t* mask_cr = cairo_create(mask);
     cairo_scale(mask_cr, scale, scale);
-    cairo_translate(mask_cr, -bounds.x, -bounds.y);
+    cairo_translate(mask_cr, -resolved.bounds.x, -resolved.bounds.y);
     cairo_set_source_rgb(mask_cr, 1.0, 1.0, 1.0);
-    AddRoundedRect(mask_cr, caster, command.corner_radius);
+    AddRoundedRect(mask_cr, resolved.caster, resolved.corner_radius);
     cairo_fill(mask_cr);
     cairo_destroy(mask_cr);
 
-                        const int radius = std::max(1, static_cast<int>(std::ceil(blur_pixels * 0.57735)));
+    const int radius = std::max(1, static_cast<int>(std::ceil(blur_pixels * 0.57735)));
     cairo_surface_t* blurred = BoxBlurMask(mask, radius);
     cairo_surface_destroy(mask);
 
     SetSourceColor(cr_, command.color);
     cairo_save(cr_);
-    cairo_translate(cr_, bounds.x, bounds.y);
+    cairo_new_path(cr_);
+    cairo_rectangle(cr_, resolved.bounds.x, resolved.bounds.y, mask_width / scale, mask_height / scale);
+    AddRoundedRect(cr_, resolved.caster, resolved.corner_radius);
+    cairo_set_fill_rule(cr_, CAIRO_FILL_RULE_EVEN_ODD);
+    cairo_clip(cr_);
+    cairo_translate(cr_, resolved.bounds.x, resolved.bounds.y);
     cairo_scale(cr_, 1.0 / scale, 1.0 / scale);
     cairo_pattern_t* blur_pattern = cairo_pattern_create_for_surface(blurred);
     cairo_pattern_set_extend(blur_pattern, CAIRO_EXTEND_NONE);
@@ -2158,8 +2145,10 @@ private:
   }
 
   void RenderCommand(const DrawPathShadowCommand& command) {
+    if (command.path.IsEmpty() || command.color.alpha <= 0.0F) {
+      return;
+    }
     const float scale = state_.Scale();
-    const float blur_pixels = command.blur_radius * scale;
     const Rect bounds = command.path.Bounds();
     const Rect shadow_bounds{
         bounds.x + command.offset.x - command.blur_radius,
@@ -2167,9 +2156,6 @@ private:
         bounds.width + command.blur_radius * 2.0F,
         bounds.height + command.blur_radius * 2.0F,
     };
-    if (shadow_bounds.width <= 0.0F || shadow_bounds.height <= 0.0F) {
-      return;
-    }
     if (command.blur_radius <= 0.0F) {
       SetSourceColor(cr_, command.color);
       cairo_save(cr_);
@@ -2189,6 +2175,7 @@ private:
     cairo_t* mask_cr = cairo_create(mask);
     cairo_scale(mask_cr, scale, scale);
     cairo_translate(mask_cr, -shadow_bounds.x, -shadow_bounds.y);
+    cairo_translate(mask_cr, command.offset.x, command.offset.y);
     cairo_set_source_rgb(mask_cr, 1.0, 1.0, 1.0);
     AppendPath(mask_cr, command.path);
     cairo_set_fill_rule(
@@ -2197,10 +2184,21 @@ private:
     );
     cairo_fill(mask_cr);
     cairo_destroy(mask_cr);
-    cairo_surface_t* blurred = BoxBlurMask(mask, std::max(1, static_cast<int>(std::ceil(blur_pixels * 0.57735))));
+    cairo_surface_t* blurred =
+        BoxBlurMask(mask, std::max(1, static_cast<int>(std::ceil(command.blur_radius * scale * 0.57735))));
     cairo_surface_destroy(mask);
+
     SetSourceColor(cr_, command.color);
     cairo_save(cr_);
+    cairo_new_path(cr_);
+    cairo_rectangle(cr_, shadow_bounds.x, shadow_bounds.y, mask_width / scale, mask_height / scale);
+    cairo_matrix_t previous{};
+    cairo_get_matrix(cr_, &previous);
+    cairo_translate(cr_, command.offset.x, command.offset.y);
+    AppendPathContour(cr_, command.path);
+    cairo_set_matrix(cr_, &previous);
+    cairo_set_fill_rule(cr_, CAIRO_FILL_RULE_EVEN_ODD);
+    cairo_clip(cr_);
     cairo_translate(cr_, shadow_bounds.x, shadow_bounds.y);
     cairo_scale(cr_, 1.0 / scale, 1.0 / scale);
     cairo_pattern_t* blur_pattern = cairo_pattern_create_for_surface(blurred);
