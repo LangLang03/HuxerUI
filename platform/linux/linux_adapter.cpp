@@ -154,7 +154,7 @@ public:
     }
     XSetErrorHandler(XErrorHandler);
     dpi_ = ReadDpi();
-            int randr_error_base_ = 0;
+    int randr_error_base_ = 0;
     XRRQueryExtension(display_, &randr_event_base_, &randr_error_base_);
     XRRSelectInput(
         display_,
@@ -271,7 +271,7 @@ public:
     XConvertSelection(display_, clipboard_atom_, utf8_string_atom_, clipboard_property_, window_, CurrentTime);
     XFlush(display_);
 
-            const double deadline = Now() + kClipboardTimeoutSeconds;
+    const double deadline = Now() + kClipboardTimeoutSeconds;
     const int connection = ConnectionNumber(display_);
     while (clipboard_read_pending_ && running_ && Now() < deadline) {
       const double remaining_seconds = std::min(kClipboardTimeoutSeconds, deadline - Now());
@@ -378,7 +378,7 @@ private:
     return RandrPhysicalDpi();
   }
 
-        float RandrPhysicalDpi() const noexcept {
+  float RandrPhysicalDpi() const noexcept {
     int event_base = 0;
     int error_base = 0;
     if (XRRQueryExtension(display_, &event_base, &error_base) == 0) {
@@ -465,7 +465,7 @@ private:
     while (running_) {
       int timeout_ms = -1;
       if (scheduled_frame_deadline_.has_value()) {
-                        const double remaining_seconds = std::max(0.0, *scheduled_frame_deadline_ - Now());
+        const double remaining_seconds = std::max(0.0, *scheduled_frame_deadline_ - Now());
         timeout_ms = static_cast<int>(
             std::min(remaining_seconds * 1000.0, static_cast<double>(std::numeric_limits<int>::max()))
         );
@@ -502,7 +502,7 @@ private:
         break;
       }
 
-                  if (scheduled_frame_deadline_.has_value() && *scheduled_frame_deadline_ <= Now()) {
+      if (scheduled_frame_deadline_.has_value() && *scheduled_frame_deadline_ <= Now()) {
         CommitFrameAndInvalidate();
         RenderCommittedFrame();
       }
@@ -523,7 +523,7 @@ private:
       break;
     case DestroyNotify:
       if (event.xdestroywindow.window == window_) {
-                        window_ = 0;
+        window_ = 0;
         running_ = false;
       }
       break;
@@ -578,7 +578,7 @@ private:
       clipboard_text_.clear();
       break;
     default:
-                        if (randr_event_base_ != 0 && event.type - randr_event_base_ == RRScreenChangeNotify) {
+      if (randr_event_base_ != 0 && event.type - randr_event_base_ == RRScreenChangeNotify) {
         XRRUpdateConfiguration(&event);
         HandleDisplayChange();
       } else if (randr_event_base_ != 0 && event.type - randr_event_base_ == RRNotify) {
@@ -608,7 +608,7 @@ private:
   }
 
   void HandleExpose(const XExposeEvent& event) {
-            if (event.count == 0) {
+    if (event.count == 0) {
       RequestFrameAt(Now());
     }
   }
@@ -670,7 +670,7 @@ private:
 
   void HandleLeaveNotify(const XCrossingEvent& event) {
     static_cast<void>(event);
-            if (!pointer_down_) {
+    if (!pointer_down_) {
       SendPointer(PointerEventType::Cancel, last_pointer_position_);
     }
   }
@@ -694,9 +694,9 @@ private:
       return;
     }
     const KeySym keysym = XLookupKeysym(const_cast<XKeyEvent*>(&event), 0);
-            const bool repeat = key_pressed_[event.keycode] != 0;
+    const bool repeat = key_pressed_[event.keycode] != 0;
     key_pressed_[event.keycode] = 1;
-                SendKey(KeyEventType::Down, keysym, event.state, TranslateKeyText(event), repeat);
+    SendKey(KeyEventType::Down, keysym, event.state, TranslateKeyText(event), repeat);
   }
 
   void HandleKeyRelease(const XKeyEvent& event) {
@@ -709,7 +709,7 @@ private:
   }
 
   std::string TranslateKeyText(const XKeyEvent& event) const {
-            if (const XIC xic = text_input_.InputContext(); xic != nullptr) {
+    if (const XIC xic = text_input_.InputContext(); xic != nullptr) {
       std::vector<char> buffer(64);
       KeySym keysym = NoSymbol;
       int status = 0;
@@ -728,7 +728,7 @@ private:
       }
       return {};
     }
-        char buffer[64];
+    char buffer[64];
     KeySym keysym = NoSymbol;
     const int length = XLookupString(const_cast<XKeyEvent*>(&event), buffer, sizeof(buffer), &keysym, nullptr);
     if (length <= 0) {
@@ -893,7 +893,7 @@ private:
           static_cast<int>(clipboard_text_.size())
       );
     } else {
-            reply.property = 0;
+      reply.property = 0;
     }
     XSendEvent(display_, request.requestor, 0, 0, reinterpret_cast<XEvent*>(&reply));
   }

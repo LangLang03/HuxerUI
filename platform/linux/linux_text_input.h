@@ -28,8 +28,8 @@ public:
   [[nodiscard]] bool Active() const noexcept;
   [[nodiscard]] bool Composing() const noexcept;
   void SetFocus(bool focused);
-      [[nodiscard]] XIC InputContext() const noexcept;
-      [[nodiscard]] bool HandleXKeyEvent(const XKeyEvent& event);
+  [[nodiscard]] XIC InputContext() const noexcept;
+  [[nodiscard]] bool HandleXKeyEvent(const XKeyEvent& event);
 
   void Start(
       TextInputSessionId session_id,

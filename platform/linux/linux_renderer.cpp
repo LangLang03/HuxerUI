@@ -80,7 +80,7 @@ struct ShapedGlyph {
   float x_offset = 0.0F;
   float y_offset = 0.0F;
   std::uint32_t cluster = 0;
-      bool fallback = false;
+  bool fallback = false;
 };
 
 struct ShapedRun {
@@ -245,7 +245,7 @@ public:
         const std::size_t glyph_utf16 = Utf8ToUtf16(text_, line.byte_start + glyph.cluster);
         if (distance < best_distance || (distance == best_distance && glyph_utf16 > 0)) {
           const bool trailing = point.x > (x + glyph_end) * 0.5F;
-                              const std::size_t resolved_utf16 =
+          const std::size_t resolved_utf16 =
               trailing ? Utf8ToUtf16(
                              text_,
                              line.byte_start + glyph.cluster +
@@ -427,7 +427,7 @@ void JpegErrorExit(j_common_ptr cinfo) {
     return result;
   }
   jpeg_create_decompress(&cinfo);
-      jpeg_mem_src(
+  jpeg_mem_src(
       &cinfo,
       reinterpret_cast<unsigned char*>(const_cast<std::byte*>(bytes.data())),
       static_cast<unsigned long>(bytes.size())
@@ -626,7 +626,7 @@ struct LinuxRenderer::State {
       return existing->second;
     }
     FT_Face face = FaceFor(font);
-            static_cast<void>(FT_Select_Charmap(face, FT_ENCODING_UNICODE));
+    static_cast<void>(FT_Select_Charmap(face, FT_ENCODING_UNICODE));
     cairo_font_face_t* cairo_face = cairo_ft_font_face_create_for_ft_face(face, 0);
     cairo_font_cache.emplace(key, cairo_face);
     return cairo_face;
@@ -657,12 +657,12 @@ struct LinuxRenderer::State {
     metrics.leading = static_cast<float>(std::max(0.0, (face->height - face->ascender + face->descender) * scale));
     metrics.underline_position = static_cast<float>(-face->underline_position * scale);
     metrics.underline_thickness = static_cast<float>(face->underline_thickness * scale);
-        metrics.strike_through_position = static_cast<float>(face->ascender * 0.5 * scale);
+    metrics.strike_through_position = static_cast<float>(face->ascender * 0.5 * scale);
     metrics.strike_through_thickness = metrics.underline_thickness;
     return metrics;
   }
 
-          [[nodiscard]] FT_Face FallbackFaceFor(std::uint32_t code_point, float size) {
+  [[nodiscard]] FT_Face FallbackFaceFor(std::uint32_t code_point, float size) {
     EnsureFreeType();
     EnsureFontconfig();
     const std::pair<std::uint32_t, float> key{code_point, size};
@@ -742,13 +742,13 @@ struct LinuxRenderer::State {
     hb_font_destroy(hb_font);
     hb_face_destroy(hb_face);
 
-                if (std::any_of(run.glyphs.begin(), run.glyphs.end(), [](const ShapedGlyph& glyph) { return glyph.index == 0; })) {
+    if (std::any_of(run.glyphs.begin(), run.glyphs.end(), [](const ShapedGlyph& glyph) { return glyph.index == 0; })) {
       run = ApplyFallbackShaping(text, style, std::move(run));
     }
     return run;
   }
 
-      [[nodiscard]] ShapedRun ApplyFallbackShaping(std::string_view text, const TextStyle& style, ShapedRun run) {
+  [[nodiscard]] ShapedRun ApplyFallbackShaping(std::string_view text, const TextStyle& style, ShapedRun run) {
     std::size_t offset = 0;
     while (offset < run.glyphs.size()) {
       ShapedGlyph& glyph = run.glyphs[offset];
@@ -906,7 +906,7 @@ struct LinuxRenderer::State {
         const unsigned char green = src[x * 4 + 1];
         const unsigned char blue = src[x * 4 + 2];
         const unsigned char alpha = src[x * 4 + 3];
-                const float a = alpha / 255.0F;
+        const float a = alpha / 255.0F;
         dst[x * 4] = static_cast<unsigned char>(blue * a);
         dst[x * 4 + 1] = static_cast<unsigned char>(green * a);
         dst[x * 4 + 2] = static_cast<unsigned char>(red * a);
@@ -1637,7 +1637,7 @@ std::unique_ptr<TextLayout> LinuxRenderer::CreateTextLayout(
   std::vector<LayoutLine> lines = WrapLines(text, style, wrap_width, options.wrap, *state_);
 
   if (lines.empty()) {
-            const FontMetrics metrics = state_->MetricsFor(style.font);
+    const FontMetrics metrics = state_->MetricsFor(style.font);
     LayoutLine empty_line;
     empty_line.ascent = metrics.ascent;
     empty_line.descent = metrics.descent;
@@ -1901,7 +1901,7 @@ private:
   }
 
   void ApplyTransform(const Transform2D& transform) {
-                cairo_matrix_t previous{};
+    cairo_matrix_t previous{};
     cairo_get_matrix(cr_, &previous);
     cairo_matrix_t current{};
     cairo_matrix_init(

@@ -41,7 +41,7 @@ public:
   [[nodiscard]] std::unique_ptr<TextLayout>
   CreateTextLayout(std::string_view text, const TextStyle& style, float max_width, const TextLayoutOptions& options);
 
-    [[nodiscard]] LinuxRenderResult Render(
+  [[nodiscard]] LinuxRenderResult Render(
       Display* display,
       Window window,
       float dpi,

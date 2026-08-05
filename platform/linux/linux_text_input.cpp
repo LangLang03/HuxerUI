@@ -60,7 +60,7 @@ std::optional<std::uint32_t> DecodeUtf8CodePoint(std::string_view text, std::siz
     }
     value = (value << 6) | (continuation & 0x3FU);
   }
-      if ((length == 2 && value < 0x80U) || (length == 3 && value < 0x800U) || (length == 4 && value < 0x10000U) ||
+  if ((length == 2 && value < 0x80U) || (length == 3 && value < 0x800U) || (length == 4 && value < 0x10000U) ||
       (value >= 0xD800U && value <= 0xDFFFU) || value > 0x10FFFFU) {
     return std::nullopt;
   }
@@ -143,8 +143,8 @@ std::string LocaleBytesToUtf8(const char* input) {
     return {};
   }
   const char* codeset = nl_langinfo(CODESET);
-  if (codeset == nullptr || codeset[0] == '\0' ||
-      strcasecmp(codeset, "UTF-8") == 0 || strcasecmp(codeset, "UTF8") == 0) {
+  if (codeset == nullptr || codeset[0] == '\0' || strcasecmp(codeset, "UTF-8") == 0 ||
+      strcasecmp(codeset, "UTF8") == 0) {
     return input;
   }
   iconv_t converter = iconv_open("UTF-8", codeset);
@@ -167,7 +167,8 @@ std::string LocaleBytesToUtf8(const char* input) {
         out_left = output.size() - consumed;
         continue;
       }
-      break;     }
+      break;
+    }
     break;
   }
   iconv_close(converter);
@@ -232,7 +233,7 @@ ApplyXimPreeditEdit(std::string_view current, int chg_first, int chg_length, std
 }
 
 struct LinuxTextInput::State {
-          static int XimStartCallback(XIM im, XPointer client_data, XPointer call_data);
+  static int XimStartCallback(XIM im, XPointer client_data, XPointer call_data);
   static void XimDrawCallback(XIM im, XPointer client_data, XPointer call_data);
   static void XimCaretCallback(XIM im, XPointer client_data, XPointer call_data);
   static void XimDoneCallback(XIM im, XPointer client_data, XPointer call_data);
@@ -253,7 +254,7 @@ struct LinuxTextInput::State {
     composing = false;
     composition_text.clear();
     composition_caret_code_points = 0;
-        #if defined(__GNUC__)
+#if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-function-type"
 #endif
@@ -308,7 +309,7 @@ struct LinuxTextInput::State {
         XSetICFocus(xic);
       } else {
         XUnsetICFocus(xic);
-                        composing = false;
+        composing = false;
         composition_text.clear();
         composition_caret_code_points = 0;
       }
@@ -319,17 +320,17 @@ struct LinuxTextInput::State {
     if (display == nullptr || window == 0 || xic == nullptr) {
       return false;
     }
-                if (secure) {
+    if (secure) {
       const bool is_release = event.type != KeyPress;
       return is_release ? false : CommitCommittedText(event);
     }
-                const bool is_release = event.type != KeyPress;
+    const bool is_release = event.type != KeyPress;
     try {
       XEvent filtered{};
       filtered.xkey = event;
       const bool consumed = XFilterEvent(&filtered, window) != 0;
       if (consumed) {
-                                        if (!is_release && !composing) {
+        if (!is_release && !composing) {
           CommitCommittedText(event);
         }
         return true;
@@ -339,7 +340,7 @@ struct LinuxTextInput::State {
       }
       return is_release ? true : CommitCommittedText(event);
     } catch (...) {
-            return false;
+      return false;
     }
   }
 
@@ -398,7 +399,6 @@ struct LinuxTextInput::State {
     composition_caret_code_points = 0;
   }
 
-
   bool EnsureInputMethod() {
     if (xic != nullptr) {
       return true;
@@ -407,10 +407,10 @@ struct LinuxTextInput::State {
       return false;
     }
     if (xim == nullptr) {
-                  XSetLocaleModifiers("");
+      XSetLocaleModifiers("");
       xim = XOpenIM(display, nullptr, nullptr, nullptr);
       if (xim == nullptr) {
-                        return false;
+        return false;
       }
     }
 
@@ -419,7 +419,7 @@ struct LinuxTextInput::State {
       return false;
     }
 
-                                        bool advertised_preedit[16] = {};
+    bool advertised_preedit[16] = {};
     for (int index = 0; index < styles->count_styles; ++index) {
       advertised_preedit[styles->supported_styles[index] & kXimPreeditMask] = true;
     }
@@ -434,7 +434,7 @@ struct LinuxTextInput::State {
 
     const auto create_context = [&](XIMStyle preedit_style, bool callbacks) -> XIC {
       if (callbacks) {
-                        const XIMStyle full_style = preedit_style | XIMStatusNothing;
+        const XIMStyle full_style = preedit_style | XIMStatusNothing;
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-function-type"
@@ -496,7 +496,7 @@ struct LinuxTextInput::State {
     return true;
   }
 
-      void OnInputMethodInstantiated() {
+  void OnInputMethodInstantiated() {
     if (display == nullptr || window == 0) {
       return;
     }
@@ -532,10 +532,10 @@ struct LinuxTextInput::State {
     }
   }
 
-
   int OnPreeditStart() {
     if (runtime == nullptr || session_id == 0 || secure) {
-      return 0;     }
+      return 0;
+    }
     composing = true;
     composition_text.clear();
     composition_caret_code_points = 0;
@@ -552,7 +552,8 @@ struct LinuxTextInput::State {
     const std::optional<std::string> updated =
         ApplyXimPreeditEdit(composition_text, chg_first, chg_length, replacement);
     if (!updated.has_value()) {
-      return;     }
+      return;
+    }
     const int caret_code_points = std::max(call_data->caret, 0);
     if (SendCompositionUpdate(*updated, CaretToUtf16(*updated, caret_code_points))) {
       composition_text = *updated;
@@ -565,7 +566,8 @@ struct LinuxTextInput::State {
       return;
     }
     if (call_data->direction != XIMAbsolutePosition) {
-      return;     }
+      return;
+    }
     composition_caret_code_points = std::max(call_data->position, 0);
     SendCompositionUpdate(composition_text, CaretToUtf16(composition_text, composition_caret_code_points));
   }
@@ -585,7 +587,7 @@ struct LinuxTextInput::State {
       return;
     }
     if (had_pending_text) {
-                              TextInputCommand cancel;
+      TextInputCommand cancel;
       cancel.kind = TextInputCommandKind::CancelComposition;
       ApplyCommands({std::move(cancel)});
     } else {
@@ -594,7 +596,6 @@ struct LinuxTextInput::State {
       ApplyCommands({std::move(finish)});
     }
   }
-
 
   TextInputApplyResult ApplyCommands(std::vector<TextInputCommand> commands) {
     if (runtime == nullptr || session_id == 0 || commands.empty()) {
@@ -662,17 +663,21 @@ struct LinuxTextInput::State {
     }
     std::vector<char> buffer(kXimCommitBufferBytes);
     KeySym keysym = NoSymbol;
-        int status = XLookupNone;
+    int status = XLookupNone;
     int length =
         Xutf8LookupString(xic, const_cast<XKeyPressedEvent*>(&event), buffer.data(), buffer.size(), &keysym, &status);
     if (status == XBufferOverflow) {
       const std::size_t needed = static_cast<std::size_t>(std::abs(length)) + 1;
       if (needed > buffer.size()) {
         buffer.resize(needed);
-        length =
-            Xutf8LookupString(
-                xic, const_cast<XKeyPressedEvent*>(&event), buffer.data(), buffer.size(), &keysym, &status
-            );
+        length = Xutf8LookupString(
+            xic,
+            const_cast<XKeyPressedEvent*>(&event),
+            buffer.data(),
+            buffer.size(),
+            &keysym,
+            &status
+        );
       }
     }
     if ((status != XLookupChars && status != XLookupBoth) || length <= 0) {
@@ -680,7 +685,6 @@ struct LinuxTextInput::State {
     }
     return CommitText(std::string_view(buffer.data(), static_cast<std::size_t>(length)));
   }
-
 
   void UpdateSpot(const TextInputGeometry& geometry) {
     if (geometry.result_code != TextInputResultCode::Ok || geometry.session_id != session_id || xic == nullptr) {
@@ -709,7 +713,7 @@ struct LinuxTextInput::State {
     if (xic == nullptr || !composing) {
       return;
     }
-            XSetICValues(xic, XNPreeditState, XIMPreeditDisable, nullptr);
+    XSetICValues(xic, XNPreeditState, XIMPreeditDisable, nullptr);
     XSetICValues(xic, XNPreeditState, XIMPreeditEnable, nullptr);
     composing = false;
     composition_text.clear();
@@ -828,7 +832,7 @@ void LinuxTextInput::State::XimInstantiateCallback(Display*, XPointer client_dat
 LinuxTextInput::LinuxTextInput() : state_(std::make_unique<State>()) {}
 
 LinuxTextInput::~LinuxTextInput() {
-        state_->CloseInputContext();
+  state_->CloseInputContext();
   state_->CloseInputMethod();
 }
 
