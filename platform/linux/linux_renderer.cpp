@@ -1783,8 +1783,7 @@ void AddRoundedRect(cairo_t* cr, const Rect& rect, float corner_radius) {
   cairo_close_path(cr);
 }
 
-void AppendPath(cairo_t* cr, const Path& path) {
-  cairo_new_path(cr);
+void AppendPathContour(cairo_t* cr, const Path& path) {
   double previous_x = 0.0;
   double previous_y = 0.0;
   for (const PathElement& element : PathAccess::Elements(path)) {
@@ -1829,6 +1828,11 @@ void AppendPath(cairo_t* cr, const Path& path) {
       break;
     }
   }
+}
+
+void AppendPath(cairo_t* cr, const Path& path) {
+  cairo_new_path(cr);
+  AppendPathContour(cr, path);
 }
 class ScenePainter {
 public:
@@ -2128,6 +2132,9 @@ private:
   }
 
   void RenderCommand(const FillPathCommand& command) {
+    if (command.path.IsEmpty() || command.color.alpha <= 0.0F) {
+      return;
+    }
     SetSourceColor(cr_, command.color);
     AppendPath(cr_, command.path);
     cairo_set_fill_rule(
@@ -2138,6 +2145,9 @@ private:
   }
 
   void RenderCommand(const StrokePathCommand& command) {
+    if (command.path.IsEmpty() || command.width <= 0.0F || command.color.alpha <= 0.0F) {
+      return;
+    }
     SetSourceColor(cr_, command.color);
     AppendPath(cr_, command.path);
     cairo_set_line_width(cr_, command.width);
