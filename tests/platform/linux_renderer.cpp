@@ -6,6 +6,8 @@
 
 #include "linux_renderer.h"
 
+#include "text_layout_internal.h"
+
 namespace huxerui::test {
 
 TEST_CASE("LinuxUnboundedTextMeasurementIgnoresParagraphAlignment") {
@@ -91,6 +93,75 @@ TEST_CASE("LinuxMeasureTextKeepsSingleLongWordOnOneLineWhenUnbounded") {
           .MeasureText("Supercalifragilistic", style, std::numeric_limits<float>::infinity(), {.wrap = TextWrap::Word});
   REQUIRE(metrics.line_count == 1);
   REQUIRE(metrics.size.width > 0.0F);
+  renderer.Discard();
+}
+
+TEST_CASE("LinuxTextLayoutCaretOffsetsSkipSurrogatePairs") {
+  detail::LinuxRenderer renderer;
+  renderer.Initialize();
+
+  const TextStyle style{Font::System(14.0F), Color::Black()};
+  // "A" (1 UTF-16 unit), emoji (2 units), "B" (1 unit); offsets are UTF-16 units.
+  const std::unique_ptr<detail::TextLayout> layout =
+      renderer.CreateTextLayout("A\U0001F600B", style, 200.0F, {.wrap = TextWrap::NoWrap});
+  REQUIRE(layout != nullptr);
+  REQUIRE(layout->Measure().width > 0.0F);
+
+  REQUIRE(layout->NextCaretOffset(0) == 1);
+  REQUIRE(layout->NextCaretOffset(1) == 3);
+  REQUIRE(layout->NextCaretOffset(3) == 4);
+  REQUIRE(layout->NextCaretOffset(4) == 4);
+  REQUIRE(layout->PreviousCaretOffset(4) == 3);
+  REQUIRE(layout->PreviousCaretOffset(3) == 1);
+  REQUIRE(layout->PreviousCaretOffset(1) == 0);
+  REQUIRE(layout->PreviousCaretOffset(0) == 0);
+
+  const std::vector<Rect> rects = layout->RangeRects({0, 4});
+  REQUIRE(rects.size() == 1);
+  REQUIRE(rects[0].width >= 0.0F);
+  renderer.Discard();
+}
+
+TEST_CASE("LinuxTextLayoutCaretOffsetsCrossMultibyteCjk") {
+  detail::LinuxRenderer renderer;
+  renderer.Initialize();
+
+  const TextStyle style{Font::System(14.0F), Color::Black()};
+  // Each CJK character occupies 3 UTF-8 bytes but 1 UTF-16 unit.
+  const std::unique_ptr<detail::TextLayout> layout =
+      renderer.CreateTextLayout("A\u4E16B", style, 200.0F, {.wrap = TextWrap::NoWrap});
+  REQUIRE(layout != nullptr);
+  REQUIRE(layout->Measure().width > 0.0F);
+
+  REQUIRE(layout->NextCaretOffset(0) == 1);
+  REQUIRE(layout->NextCaretOffset(1) == 2);
+  REQUIRE(layout->NextCaretOffset(2) == 3);
+  REQUIRE(layout->PreviousCaretOffset(3) == 2);
+  REQUIRE(layout->PreviousCaretOffset(2) == 1);
+  REQUIRE(layout->PreviousCaretOffset(1) == 0);
+
+  // A caret inside the surrogate-adjacent or multibyte region never splits a character.
+  const Rect caret = layout->CaretRect(1, TextAffinity::Downstream);
+  REQUIRE(caret.width == 1.0F);
+  REQUIRE(caret.height > 0.0F);
+  renderer.Discard();
+}
+
+TEST_CASE("LinuxTextLayoutHitTestStaysWithinUtf16Length") {
+  detail::LinuxRenderer renderer;
+  renderer.Initialize();
+
+  const TextStyle style{Font::System(14.0F), Color::Black()};
+  const std::unique_ptr<detail::TextLayout> layout =
+      renderer.CreateTextLayout("hello \U0001F600 world", style, 400.0F, {.wrap = TextWrap::NoWrap});
+  REQUIRE(layout != nullptr);
+
+  const float width = layout->Measure().width;
+  REQUIRE(width > 0.0F);
+  // A click far past the end must clamp to the final UTF-16 offset (14 units for
+  // "hello \U0001F600 world"), never beyond it.
+  const TextPosition position = layout->HitTest({width * 2.0F, 0.0F});
+  REQUIRE(position.offset == 14);
   renderer.Discard();
 }
 

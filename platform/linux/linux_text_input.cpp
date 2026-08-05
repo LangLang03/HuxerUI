@@ -147,12 +147,12 @@ std::string LocaleBytesToUtf8(const char* input) {
       strcasecmp(codeset, "UTF8") == 0) {
     return input;
   }
+  const std::size_t input_length = std::strlen(input);
+  std::string output(input_length * 4 + 16, '\0');
   iconv_t converter = iconv_open("UTF-8", codeset);
   if (converter == reinterpret_cast<iconv_t>(-1)) {
     return input;
   }
-  const std::size_t input_length = std::strlen(input);
-  std::string output(input_length * 4 + 16, '\0');
   char* in_ptr = const_cast<char*>(input);
   std::size_t in_left = input_length;
   char* out_ptr = output.data();
@@ -226,9 +226,9 @@ ApplyXimPreeditEdit(std::string_view current, int chg_first, int chg_length, std
   }
   std::string result;
   result.reserve(current.size() + replacement.size());
-  result.append(current.substr(0, *range_start));
+  result.append(current, 0, *range_start);
   result.append(replacement);
-  result.append(current.substr(*range_end));
+  result.append(current, *range_end, std::string_view::npos);
   return result;
 }
 

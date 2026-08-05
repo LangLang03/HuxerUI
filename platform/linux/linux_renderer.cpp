@@ -221,6 +221,7 @@ public:
       width_ = std::max(width_, line.advance);
       total_height_ += line.ascent + line.descent + line.leading;
     }
+    BuildUtf16Offsets();
   }
 
   Size Measure() const override {
@@ -242,12 +243,11 @@ public:
       for (const ShapedGlyph& glyph : line.glyphs) {
         const float glyph_end = x + glyph.x_advance;
         const float distance = ClampTo(x, glyph_end, point.x);
-        const std::size_t glyph_utf16 = Utf8ToUtf16(text_, line.byte_start + glyph.cluster);
+        const std::size_t glyph_utf16 = Utf16At(line.byte_start + glyph.cluster);
         if (distance < best_distance || (distance == best_distance && glyph_utf16 > 0)) {
           const bool trailing = point.x > (x + glyph_end) * 0.5F;
           const std::size_t resolved_utf16 =
-              trailing ? Utf8ToUtf16(
-                             text_,
+              trailing ? Utf16At(
                              line.byte_start + glyph.cluster +
                                  Utf8Width(static_cast<unsigned char>(text_[line.byte_start + glyph.cluster]))
                          )
@@ -259,7 +259,7 @@ public:
         x = glyph_end;
       }
       if (point.x >= x && x - point.x <= best_distance) {
-        best_offset = static_cast<TextOffset>(Utf8ToUtf16(text_, line.byte_start + line.text.size()));
+        best_offset = static_cast<TextOffset>(Utf16At(line.byte_start + line.text.size()));
         best_affinity = TextAffinity::Downstream;
         best_distance = x - point.x;
       }
@@ -268,17 +268,16 @@ public:
   }
 
   Rect CaretRect(TextOffset offset, TextAffinity affinity) const override {
-    const std::size_t utf16_length = Utf8ToUtf16(text_, text_.size());
-    const TextOffset clamped = std::clamp<TextOffset>(offset, 0, static_cast<TextOffset>(utf16_length));
+    const TextOffset clamped = std::clamp<TextOffset>(offset, 0, static_cast<TextOffset>(utf16_total_));
     for (const LayoutLine& line : lines_) {
-      const std::size_t line_start_utf16 = Utf8ToUtf16(text_, line.byte_start);
-      const std::size_t line_end_utf16 = Utf8ToUtf16(text_, line.byte_start + line.text.size());
+      const std::size_t line_start_utf16 = Utf16At(line.byte_start);
+      const std::size_t line_end_utf16 = Utf16At(line.byte_start + line.text.size());
       if (clamped < static_cast<TextOffset>(line_start_utf16) || clamped > static_cast<TextOffset>(line_end_utf16)) {
         continue;
       }
       float x = 0.0F;
       for (const ShapedGlyph& glyph : line.glyphs) {
-        const std::size_t glyph_utf16 = Utf8ToUtf16(text_, line.byte_start + glyph.cluster);
+        const std::size_t glyph_utf16 = Utf16At(line.byte_start + glyph.cluster);
         if (glyph_utf16 >= static_cast<std::size_t>(clamped)) {
           break;
         }
@@ -298,15 +297,14 @@ public:
 
   std::vector<Rect> RangeRects(TextRange range) const override {
     std::vector<Rect> rects;
-    const std::size_t utf16_length = Utf8ToUtf16(text_, text_.size());
-    const TextOffset start = std::clamp<TextOffset>(range.start, 0, static_cast<TextOffset>(utf16_length));
-    const TextOffset end = std::clamp<TextOffset>(range.end, start, static_cast<TextOffset>(utf16_length));
+    const TextOffset start = std::clamp<TextOffset>(range.start, 0, static_cast<TextOffset>(utf16_total_));
+    const TextOffset end = std::clamp<TextOffset>(range.end, start, static_cast<TextOffset>(utf16_total_));
     if (start == end) {
       return rects;
     }
     for (const LayoutLine& line : lines_) {
-      const std::size_t line_start_utf16 = Utf8ToUtf16(text_, line.byte_start);
-      const std::size_t line_end_utf16 = Utf8ToUtf16(text_, line.byte_start + line.text.size());
+      const std::size_t line_start_utf16 = Utf16At(line.byte_start);
+      const std::size_t line_end_utf16 = Utf16At(line.byte_start + line.text.size());
       const TextOffset visible_start = std::max(start, static_cast<TextOffset>(line_start_utf16));
       const TextOffset visible_end = std::min(end, static_cast<TextOffset>(line_end_utf16));
       if (visible_start >= visible_end) {
@@ -326,31 +324,72 @@ public:
   }
 
   TextOffset PreviousCaretOffset(TextOffset offset) const override {
-    const std::size_t utf16_length = Utf8ToUtf16(text_, text_.size());
-    const TextOffset clamped = std::clamp<TextOffset>(offset, 0, static_cast<TextOffset>(utf16_length));
+    const TextOffset clamped = std::clamp<TextOffset>(offset, 0, static_cast<TextOffset>(utf16_total_));
     if (clamped <= 0) {
       return 0;
     }
-    const std::size_t utf8 = Utf16ToUtf8(text_, static_cast<std::size_t>(clamped));
+    const std::size_t utf8 = ByteAt(static_cast<std::size_t>(clamped));
     if (utf8 == 0) {
       return 0;
     }
-    const std::size_t width = Utf8Width(static_cast<unsigned char>(text_[utf8 - 1]));
-    return static_cast<TextOffset>(Utf8ToUtf16(text_, utf8 - width));
+    std::size_t previous = utf8 - 1;
+    while (previous > 0 && (static_cast<unsigned char>(text_[previous]) & 0xC0U) == 0x80U) {
+      --previous;
+    }
+    return static_cast<TextOffset>(Utf16At(previous));
   }
 
   TextOffset NextCaretOffset(TextOffset offset) const override {
-    const std::size_t utf16_length = Utf8ToUtf16(text_, text_.size());
-    const TextOffset clamped = std::clamp<TextOffset>(offset, 0, static_cast<TextOffset>(utf16_length));
-    const std::size_t utf8 = Utf16ToUtf8(text_, static_cast<std::size_t>(clamped));
+    const TextOffset clamped = std::clamp<TextOffset>(offset, 0, static_cast<TextOffset>(utf16_total_));
+    const std::size_t utf8 = ByteAt(static_cast<std::size_t>(clamped));
     if (utf8 >= text_.size()) {
-      return static_cast<TextOffset>(utf16_length);
+      return static_cast<TextOffset>(utf16_total_);
     }
     const std::size_t width = Utf8Width(static_cast<unsigned char>(text_[utf8]));
-    return static_cast<TextOffset>(Utf8ToUtf16(text_, utf8 + width));
+    return static_cast<TextOffset>(Utf16At(utf8 + width));
   }
 
 private:
+  void BuildUtf16Offsets() {
+    utf16_offsets_.assign(text_.size() + 1, 0);
+    std::size_t utf16 = 0;
+    std::size_t byte = 0;
+    while (byte < text_.size()) {
+      const std::size_t width = Utf8Width(static_cast<unsigned char>(text_[byte]));
+      if (byte + width > text_.size()) {
+        break;
+      }
+      const std::uint32_t code_point = DecodeCodePoint(text_, byte, width);
+      const std::size_t units = code_point > 0xFFFFU ? 2 : 1;
+      for (std::size_t index = 0; index < width; ++index) {
+        utf16_offsets_[byte + index] = utf16;
+      }
+      utf16 += units;
+      byte += width;
+    }
+    utf16_offsets_[text_.size()] = utf16;
+    utf16_total_ = utf16;
+  }
+
+  [[nodiscard]] std::size_t Utf16At(std::size_t byte) const {
+    return byte < utf16_offsets_.size() ? utf16_offsets_[byte] : utf16_total_;
+  }
+
+  [[nodiscard]] std::size_t ByteAt(std::size_t utf16) const {
+    if (utf16 >= utf16_total_) {
+      return text_.size();
+    }
+    const auto it = std::upper_bound(utf16_offsets_.begin(), utf16_offsets_.end(), utf16);
+    std::size_t byte = static_cast<std::size_t>(it - utf16_offsets_.begin());
+    if (byte > 0) {
+      --byte;
+    }
+    while (byte > 0 && (static_cast<unsigned char>(text_[byte]) & 0xC0U) == 0x80U) {
+      --byte;
+    }
+    return byte;
+  }
+
   [[nodiscard]] static float ClampTo(float start, float end, float value) noexcept {
     if (value < start) {
       return start - value;
@@ -362,10 +401,11 @@ private:
   }
 
   [[nodiscard]] float XForUtf16(const LayoutLine& line, TextOffset utf16_within_line) const {
+    const std::size_t line_start_utf16 = Utf16At(line.byte_start);
     float x = 0.0F;
     for (const ShapedGlyph& glyph : line.glyphs) {
-      const std::size_t glyph_utf16 = Utf8ToUtf16(text_, line.byte_start + glyph.cluster);
-      if (static_cast<TextOffset>(glyph_utf16 - Utf8ToUtf16(text_, line.byte_start)) >= utf16_within_line) {
+      const std::size_t glyph_utf16 = Utf16At(line.byte_start + glyph.cluster);
+      if (static_cast<TextOffset>(glyph_utf16 - line_start_utf16) >= utf16_within_line) {
         break;
       }
       x += glyph.x_advance;
@@ -375,6 +415,8 @@ private:
 
   std::string text_;
   std::vector<LayoutLine> lines_;
+  std::vector<std::size_t> utf16_offsets_;
+  std::size_t utf16_total_ = 0;
   float width_ = 0.0F;
   float total_height_ = 0.0F;
 };
@@ -452,6 +494,39 @@ void JpegErrorExit(j_common_ptr cinfo) {
   return result;
 }
 
+struct HarfBuzzShapeState {
+  explicit HarfBuzzShapeState(hb_face_t* face_value, hb_font_t* font_value, hb_buffer_t* buffer_value)
+      : face(face_value), font(font_value), buffer(buffer_value) {}
+
+  ~HarfBuzzShapeState() {
+    hb_buffer_destroy(buffer);
+    hb_font_destroy(font);
+    hb_face_destroy(face);
+  }
+
+  HarfBuzzShapeState(const HarfBuzzShapeState&) = delete;
+  HarfBuzzShapeState& operator=(const HarfBuzzShapeState&) = delete;
+
+  hb_face_t* face;
+  hb_font_t* font;
+  hb_buffer_t* buffer;
+};
+
+struct CairoSurfaceHandle {
+  explicit CairoSurfaceHandle(cairo_surface_t* value) : surface(value) {}
+
+  ~CairoSurfaceHandle() {
+    if (surface != nullptr) {
+      cairo_surface_destroy(surface);
+    }
+  }
+
+  CairoSurfaceHandle(const CairoSurfaceHandle&) = delete;
+  CairoSurfaceHandle& operator=(const CairoSurfaceHandle&) = delete;
+
+  cairo_surface_t* surface = nullptr;
+};
+
 } // namespace
 
 struct LinuxRenderer::State {
@@ -485,8 +560,6 @@ struct LinuxRenderer::State {
   VkFormat swapchain_format = VK_FORMAT_B8G8R8A8_UNORM;
   VkExtent2D swapchain_extent{};
   std::vector<VkImage> swapchain_images;
-  VkImage transfer_image = VK_NULL_HANDLE;
-  VkDeviceMemory transfer_memory = VK_NULL_HANDLE;
   VkCommandPool command_pool = VK_NULL_HANDLE;
   VkCommandBuffer command_buffer = VK_NULL_HANDLE;
   VkSemaphore image_available = VK_NULL_HANDLE;
@@ -583,8 +656,9 @@ struct LinuxRenderer::State {
       return existing->second;
     }
 
+    const std::string family = FcFamilyFor(font);
     FcPattern* pattern = FcPatternCreate();
-    FcPatternAddString(pattern, FC_FAMILY, reinterpret_cast<const FcChar8*>(FcFamilyFor(font).c_str()));
+    FcPatternAddString(pattern, FC_FAMILY, reinterpret_cast<const FcChar8*>(family.c_str()));
     FcPatternAddInteger(pattern, FC_WEIGHT, FcWeightFor(font.Weight()));
     FcPatternAddInteger(pattern, FC_SLANT, font.Slant() == FontSlant::Italic ? FC_SLANT_ITALIC : FC_SLANT_ROMAN);
     FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
@@ -710,20 +784,22 @@ struct LinuxRenderer::State {
     // Cairo's FT load face rewrites the shared face's character size while
     // rendering; reset it to the 96-dpi reference so shaping stays in DIPs.
     FT_Set_Char_Size(face, 0, static_cast<FT_F26Dot6>(style.font.Size() * 64.0F), 96, 96);
-    hb_face_t* hb_face = hb_ft_face_create(face, nullptr);
-    hb_font_t* hb_font = hb_ft_font_create_referenced(face);
-    hb_buffer_t* buffer = hb_buffer_create();
-    hb_buffer_add_utf8(buffer, text.data(), static_cast<int>(text.size()), 0, static_cast<int>(text.size()));
+    HarfBuzzShapeState shaping{
+        hb_ft_face_create(face, nullptr),
+        hb_ft_font_create_referenced(face),
+        hb_buffer_create(),
+    };
+    hb_buffer_add_utf8(shaping.buffer, text.data(), static_cast<int>(text.size()), 0, static_cast<int>(text.size()));
     hb_buffer_set_direction(
-        buffer,
+        shaping.buffer,
         ResolveDirection(text) == TextDirection::RightToLeft ? HB_DIRECTION_RTL : HB_DIRECTION_LTR
     );
-    hb_buffer_guess_segment_properties(buffer);
-    hb_shape(hb_font, buffer, nullptr, 0);
+    hb_buffer_guess_segment_properties(shaping.buffer);
+    hb_shape(shaping.font, shaping.buffer, nullptr, 0);
 
-    const unsigned int glyph_count = hb_buffer_get_length(buffer);
-    const hb_glyph_info_t* glyph_info = hb_buffer_get_glyph_infos(buffer, nullptr);
-    const hb_glyph_position_t* glyph_position = hb_buffer_get_glyph_positions(buffer, nullptr);
+    const unsigned int glyph_count = hb_buffer_get_length(shaping.buffer);
+    const hb_glyph_info_t* glyph_info = hb_buffer_get_glyph_infos(shaping.buffer, nullptr);
+    const hb_glyph_position_t* glyph_position = hb_buffer_get_glyph_positions(shaping.buffer, nullptr);
 
     ShapedRun run;
     run.glyphs.reserve(glyph_count);
@@ -737,10 +813,6 @@ struct LinuxRenderer::State {
       });
       run.advance += static_cast<float>(glyph_position[index].x_advance) / 64.0F;
     }
-
-    hb_buffer_destroy(buffer);
-    hb_font_destroy(hb_font);
-    hb_face_destroy(hb_face);
 
     if (std::any_of(run.glyphs.begin(), run.glyphs.end(), [](const ShapedGlyph& glyph) { return glyph.index == 0; })) {
       run = ApplyFallbackShaping(text, style, std::move(run));
@@ -769,21 +841,23 @@ struct LinuxRenderer::State {
         continue;
       }
       FT_Set_Char_Size(fallback, 0, static_cast<FT_F26Dot6>(style.font.Size() * 64.0F), 96, 96);
-      hb_face_t* fallback_hb_face = hb_ft_face_create(fallback, nullptr);
-      hb_font_t* fallback_hb_font = hb_ft_font_create_referenced(fallback);
-      hb_buffer_t* fallback_buffer = hb_buffer_create();
+      HarfBuzzShapeState fallback_shaping{
+          hb_ft_face_create(fallback, nullptr),
+          hb_ft_font_create_referenced(fallback),
+          hb_buffer_create(),
+      };
       hb_buffer_add_utf8(
-          fallback_buffer,
+          fallback_shaping.buffer,
           text.data() + byte_offset,
           static_cast<int>(width),
           0,
           static_cast<int>(width)
       );
-      hb_buffer_guess_segment_properties(fallback_buffer);
-      hb_shape(fallback_hb_font, fallback_buffer, nullptr, 0);
-      const unsigned int count = hb_buffer_get_length(fallback_buffer);
-      const hb_glyph_info_t* info = hb_buffer_get_glyph_infos(fallback_buffer, nullptr);
-      const hb_glyph_position_t* position = hb_buffer_get_glyph_positions(fallback_buffer, nullptr);
+      hb_buffer_guess_segment_properties(fallback_shaping.buffer);
+      hb_shape(fallback_shaping.font, fallback_shaping.buffer, nullptr, 0);
+      const unsigned int count = hb_buffer_get_length(fallback_shaping.buffer);
+      const hb_glyph_info_t* info = hb_buffer_get_glyph_infos(fallback_shaping.buffer, nullptr);
+      const hb_glyph_position_t* position = hb_buffer_get_glyph_positions(fallback_shaping.buffer, nullptr);
       if (count > 0) {
         glyph.index = info[0].codepoint;
         glyph.x_advance = static_cast<float>(position[0].x_advance) / 64.0F;
@@ -795,9 +869,6 @@ struct LinuxRenderer::State {
           run.advance += updated.x_advance;
         }
       }
-      hb_buffer_destroy(fallback_buffer);
-      hb_font_destroy(fallback_hb_font);
-      hb_face_destroy(fallback_hb_face);
       ++offset;
     }
     return run;
@@ -848,14 +919,6 @@ struct LinuxRenderer::State {
       vkDestroyBuffer(device, staging_buffer, nullptr);
       staging_buffer = VK_NULL_HANDLE;
     }
-    if (transfer_memory != VK_NULL_HANDLE) {
-      vkFreeMemory(device, transfer_memory, nullptr);
-      transfer_memory = VK_NULL_HANDLE;
-    }
-    if (transfer_image != VK_NULL_HANDLE) {
-      vkDestroyImage(device, transfer_image, nullptr);
-      transfer_image = VK_NULL_HANDLE;
-    }
     if (swapchain != VK_NULL_HANDLE && vk_destroy_swapchain != nullptr) {
       vk_destroy_swapchain(device, swapchain, nullptr);
       swapchain = VK_NULL_HANDLE;
@@ -893,19 +956,24 @@ struct LinuxRenderer::State {
     if (decoded.pixels.empty() || decoded.width <= 0 || decoded.height <= 0) {
       return nullptr;
     }
-    cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, decoded.width, decoded.height);
+    CairoSurfaceHandle surface_handle{cairo_image_surface_create(CAIRO_FORMAT_ARGB32, decoded.width, decoded.height)};
+    cairo_surface_t* surface = surface_handle.surface;
     unsigned char* data = cairo_image_surface_get_data(surface);
     const std::size_t stride = cairo_image_surface_get_stride(surface);
+    const std::size_t pixel_bytes =
+        decoded.pixels.size() / (static_cast<std::size_t>(decoded.width) * static_cast<std::size_t>(decoded.height));
+    const bool has_alpha = pixel_bytes >= 4;
     for (int y = 0; y < decoded.height; ++y) {
       const auto* src = reinterpret_cast<const unsigned char*>(
-          decoded.pixels.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(decoded.width) * 4
+          decoded.pixels.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(decoded.width) * pixel_bytes
       );
       auto* dst = data + static_cast<std::size_t>(y) * stride;
       for (int x = 0; x < decoded.width; ++x) {
-        const unsigned char red = src[x * 4];
-        const unsigned char green = src[x * 4 + 1];
-        const unsigned char blue = src[x * 4 + 2];
-        const unsigned char alpha = src[x * 4 + 3];
+        const auto* pixel = src + static_cast<std::size_t>(x) * pixel_bytes;
+        const unsigned char red = pixel[0];
+        const unsigned char green = pixel_bytes >= 3 ? pixel[1] : pixel[0];
+        const unsigned char blue = pixel_bytes >= 3 ? pixel[2] : pixel[0];
+        const unsigned char alpha = has_alpha ? pixel[3] : 255;
         const float a = alpha / 255.0F;
         dst[x * 4] = static_cast<unsigned char>(blue * a);
         dst[x * 4 + 1] = static_cast<unsigned char>(green * a);
@@ -923,6 +991,7 @@ struct LinuxRenderer::State {
       image_cache.erase(oldest);
     }
     image_cache[identity] = {surface, bytes};
+    surface_handle.surface = nullptr;
     image_cache_bytes += bytes;
     return surface;
   }
@@ -1149,44 +1218,6 @@ struct LinuxRenderer::State {
     swapchain_images.resize(actual_image_count);
     vk_get_swapchain_images(device, swapchain, &actual_image_count, swapchain_images.data());
 
-    VkImageCreateInfo image_info{};
-    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.format = swapchain_format;
-    image_info.extent = {swapchain_extent.width, swapchain_extent.height, 1};
-    image_info.mipLevels = 1;
-    image_info.arrayLayers = 1;
-    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    if (vkCreateImage(device, &image_info, nullptr, &transfer_image) != VK_SUCCESS) {
-      return false;
-    }
-    VkMemoryRequirements memory_requirements{};
-    vkGetImageMemoryRequirements(device, transfer_image, &memory_requirements);
-    VkPhysicalDeviceMemoryProperties memory_properties{};
-    vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
-    std::uint32_t memory_type = std::numeric_limits<std::uint32_t>::max();
-    for (std::uint32_t index = 0; index < memory_properties.memoryTypeCount; ++index) {
-      if ((memory_requirements.memoryTypeBits & (1U << index)) != 0 &&
-          (memory_properties.memoryTypes[index].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0) {
-        memory_type = index;
-        break;
-      }
-    }
-    if (memory_type == std::numeric_limits<std::uint32_t>::max()) {
-      return false;
-    }
-    VkMemoryAllocateInfo allocate_info{};
-    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocate_info.allocationSize = memory_requirements.size;
-    allocate_info.memoryTypeIndex = memory_type;
-    if (vkAllocateMemory(device, &allocate_info, nullptr, &transfer_memory) != VK_SUCCESS) {
-      return false;
-    }
-    vkBindImageMemory(device, transfer_image, transfer_memory, 0);
-
     const VkDeviceSize staging_size = static_cast<VkDeviceSize>(swapchain_extent.width) * swapchain_extent.height * 4;
     VkBufferCreateInfo buffer_info{};
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -1197,7 +1228,9 @@ struct LinuxRenderer::State {
     }
     VkMemoryRequirements buffer_requirements{};
     vkGetBufferMemoryRequirements(device, staging_buffer, &buffer_requirements);
-    memory_type = std::numeric_limits<std::uint32_t>::max();
+    VkPhysicalDeviceMemoryProperties memory_properties{};
+    vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
+    std::uint32_t memory_type = std::numeric_limits<std::uint32_t>::max();
     for (std::uint32_t index = 0; index < memory_properties.memoryTypeCount; ++index) {
       if ((buffer_requirements.memoryTypeBits & (1U << index)) != 0 &&
           (memory_properties.memoryTypes[index].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0) {
@@ -1208,6 +1241,8 @@ struct LinuxRenderer::State {
     if (memory_type == std::numeric_limits<std::uint32_t>::max()) {
       return false;
     }
+    VkMemoryAllocateInfo allocate_info{};
+    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocate_info.allocationSize = buffer_requirements.size;
     allocate_info.memoryTypeIndex = memory_type;
     if (vkAllocateMemory(device, &allocate_info, nullptr, &staging_memory) != VK_SUCCESS) {
@@ -1304,7 +1339,7 @@ struct LinuxRenderer::State {
     barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = transfer_image;
+    barrier.image = swapchain_images[image_index];
     barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     vkCmdPipelineBarrier(
@@ -1322,65 +1357,15 @@ struct LinuxRenderer::State {
 
     VkBufferImageCopy copy_region{};
     copy_region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy_region.bufferRowLength = swapchain_extent.width;
     copy_region.imageExtent = {copy_width, copy_height, 1};
     vkCmdCopyBufferToImage(
         command_buffer,
         staging_buffer,
-        transfer_image,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        1,
-        &copy_region
-    );
-
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    vkCmdPipelineBarrier(
-        command_buffer,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        1,
-        &barrier
-    );
-
-    barrier.image = swapchain_images[image_index];
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(
-        command_buffer,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        1,
-        &barrier
-    );
-
-    VkImageBlit blit_region{};
-    blit_region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit_region.srcOffsets[1] = {static_cast<std::int32_t>(copy_width), static_cast<std::int32_t>(copy_height), 1};
-    blit_region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit_region.dstOffsets[1] = {static_cast<std::int32_t>(copy_width), static_cast<std::int32_t>(copy_height), 1};
-    vkCmdBlitImage(
-        command_buffer,
-        transfer_image,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         swapchain_images[image_index],
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1,
-        &blit_region,
-        VK_FILTER_NEAREST
+        &copy_region
     );
 
     barrier.image = swapchain_images[image_index];
@@ -2046,7 +2031,8 @@ private:
     const float blur_pixels = command.blur_radius * scale;
     const int mask_width = std::max(1, static_cast<int>(std::ceil(resolved.bounds.width * scale)));
     const int mask_height = std::max(1, static_cast<int>(std::ceil(resolved.bounds.height * scale)));
-    cairo_surface_t* mask = cairo_image_surface_create(CAIRO_FORMAT_A8, mask_width, mask_height);
+    CairoSurfaceHandle mask_handle{cairo_image_surface_create(CAIRO_FORMAT_A8, mask_width, mask_height)};
+    cairo_surface_t* mask = mask_handle.surface;
     cairo_t* mask_cr = cairo_create(mask);
     cairo_scale(mask_cr, scale, scale);
     cairo_translate(mask_cr, -resolved.bounds.x, -resolved.bounds.y);
@@ -2057,7 +2043,6 @@ private:
 
     const int radius = std::max(1, static_cast<int>(std::ceil(blur_pixels * 0.57735)));
     cairo_surface_t* blurred = BoxBlurMask(mask, radius);
-    cairo_surface_destroy(mask);
 
     SetSourceColor(cr_, command.color);
     cairo_save(cr_);
@@ -2168,7 +2153,8 @@ private:
     }
     const int mask_width = std::max(1, static_cast<int>(std::ceil(shadow_bounds.width * scale)));
     const int mask_height = std::max(1, static_cast<int>(std::ceil(shadow_bounds.height * scale)));
-    cairo_surface_t* mask = cairo_image_surface_create(CAIRO_FORMAT_A8, mask_width, mask_height);
+    CairoSurfaceHandle mask_handle{cairo_image_surface_create(CAIRO_FORMAT_A8, mask_width, mask_height)};
+    cairo_surface_t* mask = mask_handle.surface;
     cairo_t* mask_cr = cairo_create(mask);
     cairo_scale(mask_cr, scale, scale);
     cairo_translate(mask_cr, -shadow_bounds.x, -shadow_bounds.y);
@@ -2183,7 +2169,6 @@ private:
     cairo_destroy(mask_cr);
     cairo_surface_t* blurred =
         BoxBlurMask(mask, std::max(1, static_cast<int>(std::ceil(command.blur_radius * scale * 0.57735))));
-    cairo_surface_destroy(mask);
 
     SetSourceColor(cr_, command.color);
     cairo_save(cr_);

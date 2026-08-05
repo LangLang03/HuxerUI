@@ -243,7 +243,7 @@ public:
     if (!IsValidResourcePackagePath(package_path)) {
       throw std::logic_error("HuxerUI Linux resource path is invalid");
     }
-    const std::filesystem::path path = ResourceRoot() / std::filesystem::path(std::string(package_path));
+    const std::filesystem::path path = ResourceRoot() / std::filesystem::path(package_path);
     std::ifstream stream(path, std::ios::binary);
     if (!stream) {
       return {};
@@ -298,7 +298,7 @@ public:
     }
     clipboard_read_pending_ = false;
     clipboard_read_in_progress_ = false;
-    return clipboard_read_result_;
+    return std::move(clipboard_read_result_);
   }
 
   bool WriteText(std::string_view text) override {
@@ -413,6 +413,8 @@ private:
         }
         XRRFreeCrtcInfo(crtc);
       }
+    }
+    if (primary != nullptr) {
       XRRFreeOutputInfo(primary);
     }
     XRRFreeScreenResources(resources);
@@ -834,8 +836,8 @@ private:
       return;
     }
     frame_state_.BeginPaint();
-    const LinuxDamageRegion resolved = ResolveLinuxDamage(committed_frame_->damage, DpiScale(), width_, height_);
-    std::vector<XRectangle> rects = resolved.rects;
+    LinuxDamageRegion resolved = ResolveLinuxDamage(committed_frame_->damage, DpiScale(), width_, height_);
+    std::vector<XRectangle> rects = std::move(resolved.rects);
     if (resolved.full) {
       rects.assign(1, XRectangle{0, 0, static_cast<unsigned short>(width_), static_cast<unsigned short>(height_)});
     }
@@ -985,7 +987,7 @@ private:
 };
 
 int RunPlatformApp(AppDefinition definition) {
-  AppOptions options = definition.options;
+  AppOptions options = std::move(definition.options);
   LinuxPlatformAdapter platform;
   Runtime runtime{std::move(definition), platform};
   return platform.Run(runtime, options);
