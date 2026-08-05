@@ -1860,11 +1860,8 @@ public:
     }
 
     RenderSequence(node.content);
-    const bool clipped = node.child_clip.has_value();
-    if (clipped) {
-      cairo_save(cr_);
-      AddRoundedRect(cr_, node.child_clip->rect, node.child_clip->corner_radius);
-      cairo_clip(cr_);
+    for (const RenderClip& clip : node.child_clips) {
+      std::visit([this](const auto& command) { RenderCommand(command); }, clip);
     }
     const bool children_transformed = !node.children_transform.IsIdentity();
     if (children_transformed) {
@@ -1879,7 +1876,7 @@ public:
     if (children_transformed) {
       cairo_restore(cr_);
     }
-    if (clipped) {
+    for (std::size_t index = 0; index < node.child_clips.size(); ++index) {
       cairo_restore(cr_);
     }
     RenderSequence(node.foreground);
