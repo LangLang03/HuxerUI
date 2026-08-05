@@ -1,0 +1,10 @@
+prefix=/home/LangLang/code/cpp/HuxerUI/platform/linux/prebuilt/x86_64
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: harfbuzz-vector
+Description: HarfBuzz vector converter
+Version: 14.3.0
+Requires: freetype2 >=  20.0.14, zlib, harfbuzz =  14.3.0
+Libs: -L${libdir} -lharfbuzz-vector -lm -lharfbuzz -pthread
+Cflags: -I${includedir}/harfbuzz -pthread

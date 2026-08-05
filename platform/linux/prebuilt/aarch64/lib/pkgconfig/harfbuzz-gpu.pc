@@ -1,0 +1,10 @@
+prefix=/home/LangLang/code/cpp/HuxerUI/platform/linux/prebuilt/aarch64
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: harfbuzz-gpu
+Description: HarfBuzz GPU rasterization library
+Version: 14.3.0
+Requires: freetype2 >=  20.0.14, harfbuzz =  14.3.0
+Libs: -L${libdir} -lharfbuzz-gpu -lm -lharfbuzz -pthread
+Cflags: -I${includedir}/harfbuzz -pthread

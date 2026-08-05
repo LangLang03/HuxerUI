@@ -1,0 +1,15 @@
+prefix=/home/LangLang/code/cpp/HuxerUI/platform/linux/prebuilt/x86_64
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+sysconfdir=/home/LangLang/code/cpp/HuxerUI/platform/linux/prebuilt/x86_64/etc
+localstatedir=/home/LangLang/code/cpp/HuxerUI/platform/linux/prebuilt/x86_64/var
+confdir=/home/LangLang/code/cpp/HuxerUI/platform/linux/prebuilt/x86_64/etc/fonts
+cachedir=/home/LangLang/code/cpp/HuxerUI/platform/linux/prebuilt/x86_64/var/cache/fontconfig
+
+Name: Fontconfig
+Description: Font configuration and customization library
+Version: 2.18.2
+Requires: freetype2 >=  21.0.15, expat
+Libs: -L${libdir} -lfontconfig -pthread -lm
+Cflags: -I${includedir} -pthread

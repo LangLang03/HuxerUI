@@ -11,3 +11,6 @@
 cmake-build**
 /bin/
 /obj/
+
+# Linux prebuilt third-party build scratch space
+/huxerui-prebuilt/

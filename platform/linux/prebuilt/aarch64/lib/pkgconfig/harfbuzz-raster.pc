@@ -1,0 +1,10 @@
+prefix=/home/LangLang/code/cpp/HuxerUI/platform/linux/prebuilt/aarch64
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: harfbuzz-raster
+Description: HarfBuzz CPU rasterizer
+Version: 14.3.0
+Requires: freetype2 >=  20.0.14, libpng, harfbuzz =  14.3.0
+Libs: -L${libdir} -lharfbuzz-raster -lm -lharfbuzz -pthread
+Cflags: -I${includedir}/harfbuzz -pthread

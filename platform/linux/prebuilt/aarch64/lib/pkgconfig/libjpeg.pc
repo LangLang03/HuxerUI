@@ -1,0 +1,10 @@
+prefix=/home/LangLang/code/cpp/HuxerUI/platform/linux/prebuilt/aarch64
+exec_prefix=/home/LangLang/code/cpp/HuxerUI/platform/linux/prebuilt/aarch64
+libdir=/home/LangLang/code/cpp/HuxerUI/platform/linux/prebuilt/aarch64/lib
+includedir=/home/LangLang/code/cpp/HuxerUI/platform/linux/prebuilt/aarch64/include
+
+Name: libjpeg
+Description: A SIMD-accelerated JPEG codec that provides the libjpeg API
+Version: 3.2.0
+Libs: -L${libdir} -ljpeg
+Cflags: -I${includedir}
